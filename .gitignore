@@ -1,0 +1,38 @@
+# Environment variables (API keys, secrets)
+.env
+.env.local
+.env.*.local
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+ENV/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Data files (large historical data - download via Binance API)
+data/
+
+# Backtest results (optional - uncomment if needed)
+# backtest_results/
+# *.pkl
+.claude/settings.local.json
