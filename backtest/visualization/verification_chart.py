@@ -187,15 +187,43 @@ class VerificationDataCollector:
                 type=p['type']
             ))
 
-        # Find wave setups
-        wave3_setups = self._find_wave3_setups_detailed(
-            raw_pivots, open_prices, high, low, close
-        )
-        wave5_setups = self._find_wave5_setups_detailed(
-            raw_pivots, open_prices, high, low, close
-        )
+        # Find wave setups based on config
+        all_patterns = []
 
-        all_patterns = wave3_setups + wave5_setups
+        # Module A: Wave 3 setups
+        if getattr(self.config, 'module_a_enabled', True):
+            wave3_setups = self._find_wave3_setups_detailed(
+                raw_pivots, open_prices, high, low, close
+            )
+            all_patterns.extend(wave3_setups)
+
+        # Module B: Wave 5 setups
+        if getattr(self.config, 'module_b_enabled', True):
+            wave5_setups = self._find_wave5_setups_detailed(
+                raw_pivots, open_prices, high, low, close
+            )
+            all_patterns.extend(wave5_setups)
+
+        # Module C: Corrective patterns
+        if getattr(self.config, 'module_c_enabled', True):
+            if getattr(self.config, 'module_c_zigzag_enabled', True):
+                zigzag_setups = self._find_zigzag_setups_detailed(
+                    raw_pivots, open_prices, high, low, close
+                )
+                all_patterns.extend(zigzag_setups)
+
+            if getattr(self.config, 'module_c_flat_enabled', True):
+                flat_setups = self._find_flat_setups_detailed(
+                    raw_pivots, open_prices, high, low, close
+                )
+                all_patterns.extend(flat_setups)
+
+            if getattr(self.config, 'module_c_triangle_enabled', True):
+                triangle_setups = self._find_triangle_setups_detailed(
+                    raw_pivots, open_prices, high, low, close
+                )
+                all_patterns.extend(triangle_setups)
+
         for i, p in enumerate(all_patterns):
             p.id = i
 
@@ -212,7 +240,7 @@ class VerificationDataCollector:
         for i in range(n):
             candles.append({
                 'bar': i,
-                'date': str(pd.Timestamp(timestamps[i]).strftime('%Y-%m-%d')),
+                'date': str(pd.Timestamp(timestamps[i]).strftime('%Y-%m-%d %H:%M')),
                 'open': float(open_prices[i]),
                 'high': float(high[i]),
                 'low': float(low[i]),
@@ -410,6 +438,10 @@ class VerificationDataCollector:
                     tp1 = w3_end
                     tp2 = w3_end + (w3_end - w1_start) * 0.618
 
+                    # Validate: for long, entry must be below TP1 and above SL
+                    if entry_price >= tp1 or entry_price <= stop_loss:
+                        continue
+
                     zone_low = w3_end - w3_range * 0.5
                     zone_high = w3_end - w3_range * 0.236
 
@@ -467,6 +499,10 @@ class VerificationDataCollector:
                     tp1 = w3_end
                     tp2 = w3_end - (w1_start - w3_end) * 0.618
 
+                    # Validate: for short, entry must be above TP1 and below SL
+                    if entry_price <= tp1 or entry_price >= stop_loss:
+                        continue
+
                     zone_low = w3_end + w3_range * 0.236
                     zone_high = w3_end + w3_range * 0.5
 
@@ -492,6 +528,358 @@ class VerificationDataCollector:
                         entry_price=entry_price,
                         retrace_pct=retrace * 100
                     ))
+
+        return patterns
+
+    def _find_zigzag_setups_detailed(
+        self,
+        pivots: List[Dict],
+        open_prices: np.ndarray,
+        high: np.ndarray,
+        low: np.ndarray,
+        close: np.ndarray
+    ) -> List[DetailedPattern]:
+        """Find Zigzag (A-B-C) setups with full detail for visualization"""
+        patterns = []
+        n_pivots = len(pivots)
+        fib_tol = self.wave_analyzer.fib_tolerance
+        b_min = getattr(self.config, 'zigzag_b_min_retrace', 0.382)
+        b_max = getattr(self.config, 'zigzag_b_max_retrace', 0.786)
+
+        for i in range(2, n_pivots):
+            p0 = pivots[i-2]
+            p1 = pivots[i-1]
+            p2 = pivots[i]
+
+            # Bullish zigzag (down-up for trade): high-low-high pattern
+            if p0['type'] == 1 and p1['type'] == -1 and p2['type'] == 1:
+                a_start = p0['price']
+                a_end = p1['price']
+                b_end = p2['price']
+                a_range = a_start - a_end
+                if a_range <= 0:
+                    continue
+
+                b_retrace = (b_end - a_end) / a_range
+                if b_min - fib_tol <= b_retrace <= b_max + fib_tol and b_end < a_start:
+                    confirmed_bar = p2['confirmed_idx']
+                    entry_bar = confirmed_bar + 1
+                    if entry_bar >= len(open_prices):
+                        continue
+
+                    entry_price = open_prices[entry_bar]
+                    stop_loss = a_start + (a_range * 0.02)
+                    tp1 = entry_price - a_range * 0.618
+                    tp2 = entry_price - a_range * 1.0
+
+                    # Validate: for short, entry must be below SL and above TP1
+                    if entry_price >= stop_loss or entry_price <= tp1:
+                        continue
+
+                    patterns.append(DetailedPattern(
+                        id=0,
+                        type='zigzag',
+                        module='C',
+                        direction='short',
+                        pivot_indices=[p0['pivot_idx'], p1['pivot_idx'], p2['pivot_idx']],
+                        pivot_prices=[p0['price'], p1['price'], p2['price']],
+                        pivot_types=[p0['type'], p1['type'], p2['type']],
+                        entry_zone_low=min(entry_price, tp1),
+                        entry_zone_high=max(entry_price, stop_loss),
+                        tp1=tp1,
+                        tp2=tp2,
+                        stop_loss=stop_loss,
+                        confirmed_bar=confirmed_bar,
+                        entry_bar=entry_bar,
+                        traded=False,
+                        entry_price=entry_price,
+                        retrace_pct=b_retrace * 100
+                    ))
+
+            # Bearish zigzag (up for trade): low-high-low pattern
+            elif p0['type'] == -1 and p1['type'] == 1 and p2['type'] == -1:
+                a_start = p0['price']
+                a_end = p1['price']
+                b_end = p2['price']
+                a_range = a_end - a_start
+                if a_range <= 0:
+                    continue
+
+                b_retrace = (a_end - b_end) / a_range
+                if b_min - fib_tol <= b_retrace <= b_max + fib_tol and b_end > a_start:
+                    confirmed_bar = p2['confirmed_idx']
+                    entry_bar = confirmed_bar + 1
+                    if entry_bar >= len(open_prices):
+                        continue
+
+                    entry_price = open_prices[entry_bar]
+                    stop_loss = a_start - (a_range * 0.02)
+                    tp1 = entry_price + a_range * 0.618
+                    tp2 = entry_price + a_range * 1.0
+
+                    # Validate: for long, entry must be above SL and below TP1
+                    if entry_price <= stop_loss or entry_price >= tp1:
+                        continue
+
+                    patterns.append(DetailedPattern(
+                        id=0,
+                        type='zigzag',
+                        module='C',
+                        direction='long',
+                        pivot_indices=[p0['pivot_idx'], p1['pivot_idx'], p2['pivot_idx']],
+                        pivot_prices=[p0['price'], p1['price'], p2['price']],
+                        pivot_types=[p0['type'], p1['type'], p2['type']],
+                        entry_zone_low=min(entry_price, stop_loss),
+                        entry_zone_high=max(entry_price, tp1),
+                        tp1=tp1,
+                        tp2=tp2,
+                        stop_loss=stop_loss,
+                        confirmed_bar=confirmed_bar,
+                        entry_bar=entry_bar,
+                        traded=False,
+                        entry_price=entry_price,
+                        retrace_pct=b_retrace * 100
+                    ))
+
+        return patterns
+
+    def _find_flat_setups_detailed(
+        self,
+        pivots: List[Dict],
+        open_prices: np.ndarray,
+        high: np.ndarray,
+        low: np.ndarray,
+        close: np.ndarray
+    ) -> List[DetailedPattern]:
+        """Find Flat (A-B-C) setups with full detail for visualization"""
+        patterns = []
+        n_pivots = len(pivots)
+        fib_tol = self.wave_analyzer.fib_tolerance
+        b_min = getattr(self.config, 'flat_b_min_retrace', 0.90)
+        b_max = getattr(self.config, 'flat_b_max_retrace', 1.38)
+
+        for i in range(2, n_pivots):
+            p0 = pivots[i-2]
+            p1 = pivots[i-1]
+            p2 = pivots[i]
+
+            # Bullish flat context: high-low-high
+            if p0['type'] == 1 and p1['type'] == -1 and p2['type'] == 1:
+                a_start = p0['price']
+                a_end = p1['price']
+                b_end = p2['price']
+                a_range = a_start - a_end
+                if a_range <= 0:
+                    continue
+
+                b_retrace = (b_end - a_end) / a_range
+                if b_min - fib_tol <= b_retrace <= b_max + fib_tol:
+                    confirmed_bar = p2['confirmed_idx']
+                    entry_bar = confirmed_bar + 1
+                    if entry_bar >= len(open_prices):
+                        continue
+
+                    entry_price = open_prices[entry_bar]
+                    stop_loss = b_end + (a_range * 0.05)
+                    tp1 = entry_price - a_range * 0.618
+                    tp2 = entry_price - a_range * 1.0
+
+                    # Validate: for short, entry must be below SL and above TP1
+                    if entry_price >= stop_loss or entry_price <= tp1:
+                        continue
+
+                    patterns.append(DetailedPattern(
+                        id=0,
+                        type='flat',
+                        module='C',
+                        direction='short',
+                        pivot_indices=[p0['pivot_idx'], p1['pivot_idx'], p2['pivot_idx']],
+                        pivot_prices=[p0['price'], p1['price'], p2['price']],
+                        pivot_types=[p0['type'], p1['type'], p2['type']],
+                        entry_zone_low=min(entry_price, tp1),
+                        entry_zone_high=max(entry_price, stop_loss),
+                        tp1=tp1,
+                        tp2=tp2,
+                        stop_loss=stop_loss,
+                        confirmed_bar=confirmed_bar,
+                        entry_bar=entry_bar,
+                        traded=False,
+                        entry_price=entry_price,
+                        retrace_pct=b_retrace * 100
+                    ))
+
+            # Bearish flat context: low-high-low
+            elif p0['type'] == -1 and p1['type'] == 1 and p2['type'] == -1:
+                a_start = p0['price']
+                a_end = p1['price']
+                b_end = p2['price']
+                a_range = a_end - a_start
+                if a_range <= 0:
+                    continue
+
+                b_retrace = (a_end - b_end) / a_range
+                if b_min - fib_tol <= b_retrace <= b_max + fib_tol:
+                    confirmed_bar = p2['confirmed_idx']
+                    entry_bar = confirmed_bar + 1
+                    if entry_bar >= len(open_prices):
+                        continue
+
+                    entry_price = open_prices[entry_bar]
+                    stop_loss = b_end - (a_range * 0.05)
+                    tp1 = entry_price + a_range * 0.618
+                    tp2 = entry_price + a_range * 1.0
+
+                    # Validate: for long, entry must be above SL and below TP1
+                    if entry_price <= stop_loss or entry_price >= tp1:
+                        continue
+
+                    patterns.append(DetailedPattern(
+                        id=0,
+                        type='flat',
+                        module='C',
+                        direction='long',
+                        pivot_indices=[p0['pivot_idx'], p1['pivot_idx'], p2['pivot_idx']],
+                        pivot_prices=[p0['price'], p1['price'], p2['price']],
+                        pivot_types=[p0['type'], p1['type'], p2['type']],
+                        entry_zone_low=min(entry_price, stop_loss),
+                        entry_zone_high=max(entry_price, tp1),
+                        tp1=tp1,
+                        tp2=tp2,
+                        stop_loss=stop_loss,
+                        confirmed_bar=confirmed_bar,
+                        entry_bar=entry_bar,
+                        traded=False,
+                        entry_price=entry_price,
+                        retrace_pct=b_retrace * 100
+                    ))
+
+        return patterns
+
+    def _find_triangle_setups_detailed(
+        self,
+        pivots: List[Dict],
+        open_prices: np.ndarray,
+        high: np.ndarray,
+        low: np.ndarray,
+        close: np.ndarray
+    ) -> List[DetailedPattern]:
+        """Find Triangle (A-B-C-D-E) setups with full detail for visualization"""
+        patterns = []
+        n_pivots = len(pivots)
+
+        for i in range(4, n_pivots):
+            p0 = pivots[i-4]
+            p1 = pivots[i-3]
+            p2 = pivots[i-2]
+            p3 = pivots[i-1]
+            p4 = pivots[i]
+
+            # Contracting triangle bullish: high-low-high-low-high
+            if (p0['type'] == 1 and p1['type'] == -1 and p2['type'] == 1 and
+                p3['type'] == -1 and p4['type'] == 1):
+                a_high = p0['price']
+                b_low = p1['price']
+                c_high = p2['price']
+                d_low = p3['price']
+                e_high = p4['price']
+
+                # Validate contracting pattern
+                if c_high >= a_high or d_low <= b_low or e_high >= c_high:
+                    continue
+
+                triangle_width = a_high - b_low
+                if triangle_width <= 0:
+                    continue
+
+                confirmed_bar = p4['confirmed_idx']
+                entry_bar = confirmed_bar + 1
+                if entry_bar >= len(open_prices):
+                    continue
+
+                entry_price = open_prices[entry_bar]
+                stop_loss = d_low - (triangle_width * 0.05)
+                tp1 = entry_price + triangle_width * 0.5
+                tp2 = entry_price + triangle_width
+
+                # Validate: for long, entry must be above SL and below TP1
+                if entry_price <= stop_loss or entry_price >= tp1:
+                    continue
+
+                patterns.append(DetailedPattern(
+                    id=0,
+                    type='triangle',
+                    module='C',
+                    direction='long',
+                    pivot_indices=[p0['pivot_idx'], p1['pivot_idx'], p2['pivot_idx'],
+                                  p3['pivot_idx'], p4['pivot_idx']],
+                    pivot_prices=[p0['price'], p1['price'], p2['price'],
+                                 p3['price'], p4['price']],
+                    pivot_types=[p0['type'], p1['type'], p2['type'],
+                                p3['type'], p4['type']],
+                    entry_zone_low=stop_loss,
+                    entry_zone_high=tp1,
+                    tp1=tp1,
+                    tp2=tp2,
+                    stop_loss=stop_loss,
+                    confirmed_bar=confirmed_bar,
+                    entry_bar=entry_bar,
+                    traded=False,
+                    entry_price=entry_price,
+                    retrace_pct=0
+                ))
+
+            # Contracting triangle bearish: low-high-low-high-low
+            elif (p0['type'] == -1 and p1['type'] == 1 and p2['type'] == -1 and
+                  p3['type'] == 1 and p4['type'] == -1):
+                a_low = p0['price']
+                b_high = p1['price']
+                c_low = p2['price']
+                d_high = p3['price']
+                e_low = p4['price']
+
+                if c_low <= a_low or d_high >= b_high or e_low <= c_low:
+                    continue
+
+                triangle_width = b_high - a_low
+                if triangle_width <= 0:
+                    continue
+
+                confirmed_bar = p4['confirmed_idx']
+                entry_bar = confirmed_bar + 1
+                if entry_bar >= len(open_prices):
+                    continue
+
+                entry_price = open_prices[entry_bar]
+                stop_loss = d_high + (triangle_width * 0.05)
+                tp1 = entry_price - triangle_width * 0.5
+                tp2 = entry_price - triangle_width
+
+                # Validate: for short, entry must be below SL and above TP1
+                if entry_price >= stop_loss or entry_price <= tp1:
+                    continue
+
+                patterns.append(DetailedPattern(
+                    id=0,
+                    type='triangle',
+                    module='C',
+                    direction='short',
+                    pivot_indices=[p0['pivot_idx'], p1['pivot_idx'], p2['pivot_idx'],
+                                  p3['pivot_idx'], p4['pivot_idx']],
+                    pivot_prices=[p0['price'], p1['price'], p2['price'],
+                                 p3['price'], p4['price']],
+                    pivot_types=[p0['type'], p1['type'], p2['type'],
+                                p3['type'], p4['type']],
+                    entry_zone_low=tp1,
+                    entry_zone_high=stop_loss,
+                    tp1=tp1,
+                    tp2=tp2,
+                    stop_loss=stop_loss,
+                    confirmed_bar=confirmed_bar,
+                    entry_bar=entry_bar,
+                    traded=False,
+                    entry_price=entry_price,
+                    retrace_pct=0
+                ))
 
         return patterns
 
@@ -525,7 +913,7 @@ class VerificationDataCollector:
             current_high = high[i]
             current_low = low[i]
             current_close = close[i]
-            current_date = str(pd.Timestamp(timestamps[i]).strftime('%Y-%m-%d'))
+            current_date = str(pd.Timestamp(timestamps[i]).strftime('%Y-%m-%d %H:%M'))
 
             # Check exits for open trades
             closed_trades = []
@@ -1675,10 +2063,10 @@ def _generate_html(data: Dict) -> str:
 
             Plotly.newPlot('main-chart', traces, layout, config);
 
-            // Set initial zoom to last 180 days
+            // Set initial zoom to last 180 bars
             const startIdx = Math.max(0, candles.length - 180);
             Plotly.relayout('main-chart', {{
-                'xaxis.range': [candles[startIdx].date, candles[candles.length - 1].date]
+                'xaxis.range': [startIdx, candles.length - 1]
             }});
 
             // Add autoscale on zoom/pan
@@ -1699,33 +2087,13 @@ def _generate_html(data: Dict) -> str:
             if (!xRange) return;
 
             const candles = DATA.candles;
-            const dates = candles.map(c => c.date);
 
-            // Find visible date range indices using binary-ish search
-            let startIdx = 0;
-            let endIdx = candles.length - 1;
-
-            const startDate = xRange[0];
-            const endDate = xRange[1];
-
-            // Find first visible candle
-            for (let i = 0; i < dates.length; i++) {{
-                if (dates[i] >= startDate) {{
-                    startIdx = i;
-                    break;
-                }}
-            }}
-
-            // Find last visible candle
-            for (let i = dates.length - 1; i >= 0; i--) {{
-                if (dates[i] <= endDate) {{
-                    endIdx = i;
-                    break;
-                }}
-            }}
+            // xRange contains numeric bar indices for categorical axis
+            let startIdx = Math.max(0, Math.floor(xRange[0]));
+            let endIdx = Math.min(candles.length - 1, Math.ceil(xRange[1]));
 
             // Ensure valid range
-            if (startIdx > endIdx) {{
+            if (startIdx > endIdx || isNaN(startIdx) || isNaN(endIdx)) {{
                 startIdx = 0;
                 endIdx = candles.length - 1;
             }}
@@ -1934,12 +2302,12 @@ def _generate_html(data: Dict) -> str:
 
             document.getElementById('trade-detail').innerHTML = detailHtml;
 
-            // Zoom chart to trade
+            // Zoom chart to trade (use bar indices for categorical x-axis)
             const startBar = Math.max(0, trade.entry_bar - 30);
             const endBar = Math.min(DATA.candles.length - 1, (trade.final_exit_bar || trade.entry_bar) + 30);
 
             Plotly.relayout('main-chart', {{
-                'xaxis.range': [DATA.candles[startBar].date, DATA.candles[endBar].date]
+                'xaxis.range': [startBar, endBar]
             }}).then(() => {{
                 setTimeout(autoscaleYAxis, 50);
             }});
@@ -1953,12 +2321,12 @@ def _generate_html(data: Dict) -> str:
         }}
 
         function goToAuditIssue(bar, tradeId) {{
-            // Zoom to the bar with context
+            // Zoom to the bar with context (use bar indices for categorical x-axis)
             const startBar = Math.max(0, bar - 20);
             const endBar = Math.min(DATA.candles.length - 1, bar + 20);
 
             Plotly.relayout('main-chart', {{
-                'xaxis.range': [DATA.candles[startBar].date, DATA.candles[endBar].date]
+                'xaxis.range': [startBar, endBar]
             }}).then(() => {{
                 setTimeout(autoscaleYAxis, 50);
             }});
@@ -1968,10 +2336,8 @@ def _generate_html(data: Dict) -> str:
                 selectTrade(tradeId);
             }}
 
-            // Add a temporary marker at the issue bar
-            const issueDate = DATA.candles[bar].date;
+            // Add a temporary marker at the issue bar (use bar index for categorical x-axis)
             const candle = DATA.candles[bar];
-            const midPrice = (candle.high + candle.low) / 2;
 
             // Flash highlight using a shape
             Plotly.relayout('main-chart', {{
@@ -1979,8 +2345,8 @@ def _generate_html(data: Dict) -> str:
                     type: 'rect',
                     xref: 'x',
                     yref: 'paper',
-                    x0: issueDate,
-                    x1: issueDate,
+                    x0: bar - 0.5,
+                    x1: bar + 0.5,
                     y0: 0,
                     y1: 1,
                     line: {{color: '#f85149', width: 3}},

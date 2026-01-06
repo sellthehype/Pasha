@@ -155,40 +155,68 @@ Pasha/
 
 ## Key Components
 
-### 1. Optimized Backtest Engine (`backtest/engine/backtest_optimized.py`)
+### 1. Backtest Engines
 
-**CRITICAL**: Always use `OptimizedBacktestEngine` instead of the original `BacktestEngine`.
-
-The original engine was extremely slow (~72 hours for 1m data) because it:
-- Recalculated all pivots for every candle
-- Iterated row-by-row through 1M+ candles
-- Re-analyzed wave patterns at each step
-
-The optimized engine achieves **~200,000x speedup** by:
-- Pre-computing all pivots upfront using vectorized operations
-- Finding all setups once at pivot points
-- Using numpy arrays instead of pandas for hot paths
-- Only checking exits at each bar (simple comparisons)
+#### Optimized Engine (`backtest/engine/backtest_optimized.py`)
+For high-speed backtesting on large datasets. Achieves **~200,000x speedup** over original.
 
 **Performance**:
 - 1m data (1M candles): ~1.2 seconds
 - All 12 backtests: ~3 seconds total
 
-### 2. Pivot Detection (`VectorizedPivotDetector`)
+**Limitations**: Module C (corrective patterns) not yet integrated.
+
+#### Fixed Engine (`backtest/engine/backtest_fixed.py`) - NEW
+For accurate backtesting with **all 3 modules** and **look-ahead bias prevention**.
+
+**Features**:
+- Tracks pivot CONFIRMATION bars (not just detection)
+- Entries happen at next bar's open after confirmation
+- All 3 modules: Wave 3 (A), Wave 5 (B), Corrective patterns (C)
+- Full trade audit trail for verification
+- Entry/SL/TP validation to filter invalid setups
+
+**Use this for**: Visual verification, accuracy testing, Module C backtests.
+
+### 2. Visual Verification Tool (`backtest/visualization/verification_chart.py`) - NEW
+
+Interactive HTML charts for visually verifying backtest correctness.
+
+**Features**:
+- Plotly.js candlestick charts with proper datetime x-axis
+- Wave pattern overlays with pivot markers
+- Trade entry/exit visualization with P&L coloring
+- Click-to-teleport: Click trade in table → chart zooms to location
+- Audit issues panel with clickable problem locations
+- Full trade accounting detail in sidebar
+- Toggleable layers (waves, fibs, SL/TP, trade paths)
+- Keyboard navigation (arrow keys to cycle trades)
+
+**Generate verification charts**:
+```python
+from backtest.visualization.verification_chart import generate_verification_html
+from backtest.config.settings import Config
+
+config = Config()
+config.module_a_enabled = True  # Enable desired modules
+generate_verification_html(df, 'BTCUSDT', '15m', config, 'output/verification.html')
+```
+
+### 3. Pivot Detection (`VectorizedPivotDetector`)
 
 Uses ATR-based zigzag algorithm:
 - Threshold = ATR × multiplier (default 1.5)
 - Minimum wave size = 0.5% of price
 - Detects swing highs and lows for wave analysis
 
-### 3. Wave Analysis (`VectorizedWaveAnalyzer`)
+### 4. Wave Analysis (`VectorizedWaveAnalyzer`)
 
 Identifies Elliott Wave setups from pivot sequences:
 - **Wave 3 setups**: Low-High-Low pattern with valid retracement
 - **Wave 5 setups**: 5-pivot pattern with valid wave structure
 - Validates Elliott Wave rules (no overlap, proper retracements)
 
-### 4. Configuration (`backtest/config/settings.py`)
+### 5. Configuration (`backtest/config/settings.py`)
 
 All parameters are centralized in the `Config` dataclass:
 - Wave detection parameters
@@ -209,12 +237,13 @@ All parameters are centralized in the `Config` dataclass:
 
 2. **Data Infrastructure**
    - Binance API integration
-   - Historical data download (2 years)
+   - Historical data download (2 years: Jan 2024 - Jan 2026)
    - CSV storage system
 
-3. **Backtest Engine**
+3. **Backtest Engines**
    - Original engine (functional but slow)
    - **Optimized engine** (production-ready, ~200,000x faster)
+   - **Fixed engine** (all 3 modules, look-ahead bias prevention) - NEW
 
 4. **Full Backtests Run**
    - BTCUSDT: All 6 timeframes
@@ -224,6 +253,18 @@ All parameters are centralized in the `Config` dataclass:
 5. **Reporting**
    - CSV summary export
    - HTML comparison dashboard
+
+6. **Visual Verification Tool** - NEW (January 6, 2026)
+   - Interactive HTML charts for backtest verification
+   - Click-to-teleport navigation
+   - Per-module verification (A, B, C separately)
+   - Full trade audit trail
+
+7. **Bug Fixes** - NEW (January 6, 2026)
+   - Fixed entry/SL/TP validation in all pattern types (Wave 5, Zigzag, Flat, Triangle)
+   - Fixed datetime formatting for intraday timeframes (was aggregating by date)
+   - Fixed categorical x-axis navigation in Plotly charts
+   - Fixed autoscale Y-axis for visible candles only
 
 ### Latest Backtest Results (January 2026)
 
@@ -347,9 +388,9 @@ Standard for financial backtesting. 70% for optimization, 30% for out-of-sample 
    - Real-world slippage not modeled
    - Consider these as "best case" scenarios
 
-2. **No Module C in Optimized Engine**
-   - Current optimized engine only implements Modules A and B
-   - Module C (corrective patterns) needs to be added
+2. **Module C Only in Fixed Engine**
+   - Optimized engine only implements Modules A and B
+   - Use `FixedBacktestEngine` for Module C (corrective patterns)
 
 3. **Simplified Confirmation Logic**
    - The "higher low" confirmation is simplified
@@ -358,6 +399,10 @@ Standard for financial backtesting. 70% for optimization, 30% for out-of-sample 
 4. **Single Asset Per Run**
    - No cross-asset correlation analysis
    - Each symbol/timeframe is independent
+
+5. **Fixed Engine Slower Than Optimized**
+   - Fixed engine prioritizes accuracy over speed
+   - Use optimized engine for bulk backtesting, fixed engine for verification
 
 ---
 
@@ -385,4 +430,4 @@ pytest>=7.0.0
 
 ---
 
-*Last updated: January 5, 2026*
+*Last updated: January 6, 2026*

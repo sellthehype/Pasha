@@ -50,6 +50,18 @@ DEFAULT_CONFIG = {
     "module_c_enabled": True,
     "trade_diagonals": False,
 
+    # Module C sub-patterns
+    "module_c_zigzag_enabled": True,
+    "module_c_flat_enabled": True,
+    "module_c_triangle_enabled": True,
+
+    # Module C parameters
+    "zigzag_b_min_retrace": 0.382,  # Wave B minimum retracement of A
+    "zigzag_b_max_retrace": 0.786,  # Wave B maximum retracement of A
+    "flat_b_min_retrace": 0.90,     # Flat: B retraces at least 90% of A
+    "flat_b_max_retrace": 1.38,     # Expanded flat: B can exceed A by up to 138%
+    "triangle_min_waves": 5,        # A-B-C-D-E
+
     # Optimization
     "optimization_trials": 200,
     "optimization_metric": "sharpe_ratio",
@@ -101,6 +113,18 @@ class Config:
     module_c_enabled: bool = True
     trade_diagonals: bool = False
 
+    # Module C sub-patterns
+    module_c_zigzag_enabled: bool = True
+    module_c_flat_enabled: bool = True
+    module_c_triangle_enabled: bool = True
+
+    # Module C parameters
+    zigzag_b_min_retrace: float = 0.382
+    zigzag_b_max_retrace: float = 0.786
+    flat_b_min_retrace: float = 0.90
+    flat_b_max_retrace: float = 1.38
+    triangle_min_waves: int = 5
+
     # Optimization
     optimization_trials: int = 200
     optimization_metric: str = "sharpe_ratio"
@@ -148,6 +172,14 @@ class Config:
             "module_b_enabled": self.module_b_enabled,
             "module_c_enabled": self.module_c_enabled,
             "trade_diagonals": self.trade_diagonals,
+            "module_c_zigzag_enabled": self.module_c_zigzag_enabled,
+            "module_c_flat_enabled": self.module_c_flat_enabled,
+            "module_c_triangle_enabled": self.module_c_triangle_enabled,
+            "zigzag_b_min_retrace": self.zigzag_b_min_retrace,
+            "zigzag_b_max_retrace": self.zigzag_b_max_retrace,
+            "flat_b_min_retrace": self.flat_b_min_retrace,
+            "flat_b_max_retrace": self.flat_b_max_retrace,
+            "triangle_min_waves": self.triangle_min_waves,
             "optimization_trials": self.optimization_trials,
             "optimization_metric": self.optimization_metric,
         }

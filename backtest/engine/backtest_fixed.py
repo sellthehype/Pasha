@@ -330,6 +330,10 @@ class RealisticWaveAnalyzer:
                     tp1 = w3_end  # Previous high
                     tp2 = w3_end + (w3_end - w1_start) * 0.618
 
+                    # Validate: for long, entry must be below TP1 and above SL
+                    if entry_price >= tp1 or entry_price <= stop_loss:
+                        continue
+
                     setups.append({
                         'type': 'wave5',
                         'direction': 'long',
@@ -372,6 +376,10 @@ class RealisticWaveAnalyzer:
                     tp1 = w3_end
                     tp2 = w3_end - (w1_start - w3_end) * 0.618
 
+                    # Validate: for short, entry must be above TP1 and below SL
+                    if entry_price <= tp1 or entry_price >= stop_loss:
+                        continue
+
                     setups.append({
                         'type': 'wave5',
                         'direction': 'short',
@@ -383,6 +391,390 @@ class RealisticWaveAnalyzer:
                         'tp2': tp2,
                         'retrace': retrace
                     })
+
+        return setups
+
+    def find_zigzag_setups(
+        self,
+        pivots: List[Dict],
+        open_prices: np.ndarray,
+        high: np.ndarray,
+        low: np.ndarray,
+        close: np.ndarray,
+        b_min_retrace: float = 0.382,
+        b_max_retrace: float = 0.786
+    ) -> List[Dict]:
+        """
+        Find Zigzag (A-B-C) corrective setups.
+
+        Zigzag: Sharp correction where:
+        - Wave A is impulsive (we detect it as a strong move)
+        - Wave B retraces 38.2% - 78.6% of Wave A
+        - Wave B does NOT exceed Wave A start
+        - Entry at Wave B completion to ride Wave C
+
+        Targets: C = 61.8%, 100%, or 161.8% of A
+        """
+        setups = []
+        n_pivots = len(pivots)
+
+        for i in range(2, n_pivots):
+            p0 = pivots[i-2]  # Wave A start
+            p1 = pivots[i-1]  # Wave A end / B start
+            p2 = pivots[i]    # Wave B end / C start
+
+            # Bullish zigzag (down-up-down, then expecting up for C)
+            # A goes down, B retraces up, C continues down - we trade the C wave DOWN
+            if p0['type'] == 1 and p1['type'] == -1 and p2['type'] == 1:
+                a_start = p0['price']
+                a_end = p1['price']
+                b_end = p2['price']
+
+                a_range = a_start - a_end  # Positive for downward A
+                if a_range <= 0:
+                    continue
+
+                # B retracement (how much B recovered of A's decline)
+                b_retrace = (b_end - a_end) / a_range
+
+                # Validate: B must retrace within allowed range and NOT exceed A start
+                if b_min_retrace - self.fib_tolerance <= b_retrace <= b_max_retrace + self.fib_tolerance:
+                    if b_end < a_start:  # B hasn't exceeded A start (valid zigzag)
+                        confirmed_bar = p2['confirmed_idx']
+                        entry_bar = confirmed_bar + 1
+                        if entry_bar >= len(open_prices):
+                            continue
+
+                        entry_price = open_prices[entry_bar]
+
+                        # Stop above A start (if B exceeds A start, pattern invalid)
+                        stop_loss = a_start + (a_range * 0.02)
+
+                        # Targets: Based on entry price, using A range as measure
+                        # For short: TPs below entry
+                        tp1 = entry_price - a_range * 0.618   # TP1 = entry - 61.8% of A
+                        tp2 = entry_price - a_range * 1.0     # TP2 = entry - 100% of A
+
+                        # Validate: for short, entry must be below SL and above TP1
+                        if entry_price >= stop_loss or entry_price <= tp1:
+                            continue
+
+                        setups.append({
+                            'type': 'zigzag',
+                            'direction': 'short',  # Trading Wave C down
+                            'confirmed_bar': confirmed_bar,
+                            'entry_bar': entry_bar,
+                            'entry_price': entry_price,
+                            'stop_loss': stop_loss,
+                            'tp1': tp1,
+                            'tp2': tp2,
+                            'a_range': a_range,
+                            'retrace': b_retrace
+                        })
+
+            # Bearish zigzag (up-down-up, then expecting down for C)
+            # A goes up, B retraces down, C continues up - we trade the C wave UP
+            elif p0['type'] == -1 and p1['type'] == 1 and p2['type'] == -1:
+                a_start = p0['price']
+                a_end = p1['price']
+                b_end = p2['price']
+
+                a_range = a_end - a_start  # Positive for upward A
+                if a_range <= 0:
+                    continue
+
+                # B retracement (how much B gave back of A's advance)
+                b_retrace = (a_end - b_end) / a_range
+
+                if b_min_retrace - self.fib_tolerance <= b_retrace <= b_max_retrace + self.fib_tolerance:
+                    if b_end > a_start:  # B hasn't exceeded A start
+                        confirmed_bar = p2['confirmed_idx']
+                        entry_bar = confirmed_bar + 1
+                        if entry_bar >= len(open_prices):
+                            continue
+
+                        entry_price = open_prices[entry_bar]
+                        stop_loss = a_start - (a_range * 0.02)
+
+                        # Targets: Based on entry price, using A range as measure
+                        # For long: TPs above entry
+                        tp1 = entry_price + a_range * 0.618   # TP1 = entry + 61.8% of A
+                        tp2 = entry_price + a_range * 1.0     # TP2 = entry + 100% of A
+
+                        # Validate: for long, entry must be above SL and below TP1
+                        if entry_price <= stop_loss or entry_price >= tp1:
+                            continue
+
+                        setups.append({
+                            'type': 'zigzag',
+                            'direction': 'long',  # Trading Wave C up
+                            'confirmed_bar': confirmed_bar,
+                            'entry_bar': entry_bar,
+                            'entry_price': entry_price,
+                            'stop_loss': stop_loss,
+                            'tp1': tp1,
+                            'tp2': tp2,
+                            'a_range': a_range,
+                            'retrace': b_retrace
+                        })
+
+        return setups
+
+    def find_flat_setups(
+        self,
+        pivots: List[Dict],
+        open_prices: np.ndarray,
+        high: np.ndarray,
+        low: np.ndarray,
+        close: np.ndarray,
+        b_min_retrace: float = 0.90,
+        b_max_retrace: float = 1.38
+    ) -> List[Dict]:
+        """
+        Find Flat (A-B-C) corrective setups.
+
+        Flat: Sideways correction where:
+        - Wave A is corrective (3-wave)
+        - Wave B retraces 90% - 138% of Wave A (can exceed A start in expanded flat)
+        - Wave C typically moves 100% - 161.8% of A
+
+        Expanded Flat (most common): B exceeds A start, C exceeds A end
+        """
+        setups = []
+        n_pivots = len(pivots)
+
+        for i in range(2, n_pivots):
+            p0 = pivots[i-2]
+            p1 = pivots[i-1]
+            p2 = pivots[i]
+
+            # Bullish flat context (market going up, flat correction)
+            # A goes down, B goes up (exceeds or nearly equals A start), C goes down sharply
+            if p0['type'] == 1 and p1['type'] == -1 and p2['type'] == 1:
+                a_start = p0['price']
+                a_end = p1['price']
+                b_end = p2['price']
+
+                a_range = a_start - a_end
+                if a_range <= 0:
+                    continue
+
+                # B retracement - in flat, B retraces at least 90% of A
+                # In expanded flat, B exceeds A start (retrace > 100%)
+                b_retrace = (b_end - a_end) / a_range
+
+                if b_min_retrace - self.fib_tolerance <= b_retrace <= b_max_retrace + self.fib_tolerance:
+                    confirmed_bar = p2['confirmed_idx']
+                    entry_bar = confirmed_bar + 1
+                    if entry_bar >= len(open_prices):
+                        continue
+
+                    entry_price = open_prices[entry_bar]
+
+                    # Stop above B end (pattern failure)
+                    stop_loss = b_end + (a_range * 0.05)
+
+                    # Targets: Based on entry price, using A range as measure
+                    # For short: TPs below entry
+                    tp1 = entry_price - a_range * 0.618   # TP1 = entry - 61.8% of A
+                    tp2 = entry_price - a_range * 1.0     # TP2 = entry - 100% of A
+
+                    # Validate: for short, entry must be below SL and above TP1
+                    if entry_price >= stop_loss or entry_price <= tp1:
+                        continue
+
+                    setups.append({
+                        'type': 'flat',
+                        'direction': 'short',
+                        'confirmed_bar': confirmed_bar,
+                        'entry_bar': entry_bar,
+                        'entry_price': entry_price,
+                        'stop_loss': stop_loss,
+                        'tp1': tp1,
+                        'tp2': tp2,
+                        'a_range': a_range,
+                        'retrace': b_retrace
+                    })
+
+            # Bearish flat context
+            elif p0['type'] == -1 and p1['type'] == 1 and p2['type'] == -1:
+                a_start = p0['price']
+                a_end = p1['price']
+                b_end = p2['price']
+
+                a_range = a_end - a_start
+                if a_range <= 0:
+                    continue
+
+                b_retrace = (a_end - b_end) / a_range
+
+                if b_min_retrace - self.fib_tolerance <= b_retrace <= b_max_retrace + self.fib_tolerance:
+                    confirmed_bar = p2['confirmed_idx']
+                    entry_bar = confirmed_bar + 1
+                    if entry_bar >= len(open_prices):
+                        continue
+
+                    entry_price = open_prices[entry_bar]
+                    stop_loss = b_end - (a_range * 0.05)
+
+                    # Targets: Based on entry price, using A range as measure
+                    # For long: TPs above entry
+                    tp1 = entry_price + a_range * 0.618   # TP1 = entry + 61.8% of A
+                    tp2 = entry_price + a_range * 1.0     # TP2 = entry + 100% of A
+
+                    # Validate: for long, entry must be above SL and below TP1
+                    if entry_price <= stop_loss or entry_price >= tp1:
+                        continue
+
+                    setups.append({
+                        'type': 'flat',
+                        'direction': 'long',
+                        'confirmed_bar': confirmed_bar,
+                        'entry_bar': entry_bar,
+                        'entry_price': entry_price,
+                        'stop_loss': stop_loss,
+                        'tp1': tp1,
+                        'tp2': tp2,
+                        'a_range': a_range,
+                        'retrace': b_retrace
+                    })
+
+        return setups
+
+    def find_triangle_setups(
+        self,
+        pivots: List[Dict],
+        open_prices: np.ndarray,
+        high: np.ndarray,
+        low: np.ndarray,
+        close: np.ndarray
+    ) -> List[Dict]:
+        """
+        Find Triangle (A-B-C-D-E) corrective setups.
+
+        Triangle: Consolidation pattern where:
+        - 5 waves (A-B-C-D-E) with converging trendlines
+        - Each wave is smaller than the previous
+        - Wave C doesn't exceed Wave A
+        - Wave D doesn't exceed Wave B
+        - Entry on thrust after Wave E completion
+        - Target = triangle width at start
+        """
+        setups = []
+        n_pivots = len(pivots)
+
+        for i in range(4, n_pivots):
+            p0 = pivots[i-4]  # Wave A
+            p1 = pivots[i-3]  # Wave B
+            p2 = pivots[i-2]  # Wave C
+            p3 = pivots[i-1]  # Wave D
+            p4 = pivots[i]    # Wave E
+
+            # Contracting triangle in uptrend (bullish breakout expected)
+            # Pattern: high-low-high-low-high with contracting range
+            if (p0['type'] == 1 and p1['type'] == -1 and p2['type'] == 1 and
+                p3['type'] == -1 and p4['type'] == 1):
+
+                a_high = p0['price']
+                b_low = p1['price']
+                c_high = p2['price']
+                d_low = p3['price']
+                e_high = p4['price']
+
+                # Validate contracting pattern
+                # C should be lower than A, D should be higher than B
+                # E should be lower than C
+                if c_high >= a_high:
+                    continue
+                if d_low <= b_low:
+                    continue
+                if e_high >= c_high:
+                    continue
+
+                # Triangle width at start
+                triangle_width = a_high - b_low
+                if triangle_width <= 0:
+                    continue
+
+                confirmed_bar = p4['confirmed_idx']
+                entry_bar = confirmed_bar + 1
+                if entry_bar >= len(open_prices):
+                    continue
+
+                entry_price = open_prices[entry_bar]
+
+                # Stop below Wave E low (approximated as below d_low since E hasn't formed its low yet)
+                stop_loss = d_low - (triangle_width * 0.05)
+
+                # Target = triangle width projected from breakout
+                tp1 = entry_price + triangle_width * 0.5
+                tp2 = entry_price + triangle_width
+
+                # Validate: for long, entry must be above SL and below TP1
+                if entry_price <= stop_loss or entry_price >= tp1:
+                    continue
+
+                setups.append({
+                    'type': 'triangle',
+                    'direction': 'long',  # Bullish thrust
+                    'confirmed_bar': confirmed_bar,
+                    'entry_bar': entry_bar,
+                    'entry_price': entry_price,
+                    'stop_loss': stop_loss,
+                    'tp1': tp1,
+                    'tp2': tp2,
+                    'triangle_width': triangle_width,
+                    'retrace': 0
+                })
+
+            # Contracting triangle in downtrend (bearish breakout expected)
+            elif (p0['type'] == -1 and p1['type'] == 1 and p2['type'] == -1 and
+                  p3['type'] == 1 and p4['type'] == -1):
+
+                a_low = p0['price']
+                b_high = p1['price']
+                c_low = p2['price']
+                d_high = p3['price']
+                e_low = p4['price']
+
+                if c_low <= a_low:
+                    continue
+                if d_high >= b_high:
+                    continue
+                if e_low <= c_low:
+                    continue
+
+                triangle_width = b_high - a_low
+                if triangle_width <= 0:
+                    continue
+
+                confirmed_bar = p4['confirmed_idx']
+                entry_bar = confirmed_bar + 1
+                if entry_bar >= len(open_prices):
+                    continue
+
+                entry_price = open_prices[entry_bar]
+                stop_loss = d_high + (triangle_width * 0.05)
+
+                tp1 = entry_price - triangle_width * 0.5
+                tp2 = entry_price - triangle_width
+
+                # Validate: for short, entry must be below SL and above TP1
+                if entry_price >= stop_loss or entry_price <= tp1:
+                    continue
+
+                setups.append({
+                    'type': 'triangle',
+                    'direction': 'short',
+                    'confirmed_bar': confirmed_bar,
+                    'entry_bar': entry_bar,
+                    'entry_price': entry_price,
+                    'stop_loss': stop_loss,
+                    'tp1': tp1,
+                    'tp2': tp2,
+                    'triangle_width': triangle_width,
+                    'retrace': 0
+                })
 
         return setups
 
@@ -439,26 +831,82 @@ class FixedBacktestEngine:
             print(f"Found {len(pivots)} pivots")
 
         # Find setups with realistic entry timing
-        wave3_setups = self.wave_analyzer.find_wave3_setups(
-            pivots, open_prices, high, low, close
-        )
-        wave5_setups = self.wave_analyzer.find_wave5_setups(
-            pivots, open_prices, high, low, close
-        )
-
         all_setups = []
-        for s in wave3_setups:
-            s['module'] = 'A'
-            all_setups.append(s)
-        for s in wave5_setups:
-            s['module'] = 'B'
-            all_setups.append(s)
+
+        # Module A: Wave 3 setups
+        if getattr(self.config, 'module_a_enabled', True):
+            wave3_setups = self.wave_analyzer.find_wave3_setups(
+                pivots, open_prices, high, low, close
+            )
+            for s in wave3_setups:
+                s['module'] = 'A'
+                all_setups.append(s)
+            if show_progress:
+                print(f"  Module A (Wave 3): {len(wave3_setups)} setups")
+
+        # Module B: Wave 5 setups
+        if getattr(self.config, 'module_b_enabled', True):
+            wave5_setups = self.wave_analyzer.find_wave5_setups(
+                pivots, open_prices, high, low, close
+            )
+            for s in wave5_setups:
+                s['module'] = 'B'
+                all_setups.append(s)
+            if show_progress:
+                print(f"  Module B (Wave 5): {len(wave5_setups)} setups")
+
+        # Module C: Corrective patterns
+        if getattr(self.config, 'module_c_enabled', True):
+            module_c_count = 0
+
+            # Zigzag patterns
+            if getattr(self.config, 'module_c_zigzag_enabled', True):
+                zigzag_setups = self.wave_analyzer.find_zigzag_setups(
+                    pivots, open_prices, high, low, close,
+                    b_min_retrace=getattr(self.config, 'zigzag_b_min_retrace', 0.382),
+                    b_max_retrace=getattr(self.config, 'zigzag_b_max_retrace', 0.786)
+                )
+                for s in zigzag_setups:
+                    s['module'] = 'C'
+                    all_setups.append(s)
+                module_c_count += len(zigzag_setups)
+                if show_progress:
+                    print(f"  Module C Zigzag: {len(zigzag_setups)} setups")
+
+            # Flat patterns
+            if getattr(self.config, 'module_c_flat_enabled', True):
+                flat_setups = self.wave_analyzer.find_flat_setups(
+                    pivots, open_prices, high, low, close,
+                    b_min_retrace=getattr(self.config, 'flat_b_min_retrace', 0.90),
+                    b_max_retrace=getattr(self.config, 'flat_b_max_retrace', 1.38)
+                )
+                for s in flat_setups:
+                    s['module'] = 'C'
+                    all_setups.append(s)
+                module_c_count += len(flat_setups)
+                if show_progress:
+                    print(f"  Module C Flat: {len(flat_setups)} setups")
+
+            # Triangle patterns
+            if getattr(self.config, 'module_c_triangle_enabled', True):
+                triangle_setups = self.wave_analyzer.find_triangle_setups(
+                    pivots, open_prices, high, low, close
+                )
+                for s in triangle_setups:
+                    s['module'] = 'C'
+                    all_setups.append(s)
+                module_c_count += len(triangle_setups)
+                if show_progress:
+                    print(f"  Module C Triangle: {len(triangle_setups)} setups")
+
+            if show_progress:
+                print(f"  Module C Total: {module_c_count} setups")
 
         # Sort by ENTRY bar (not confirmation bar)
         all_setups.sort(key=lambda x: x['entry_bar'])
 
         if show_progress:
-            print(f"Found {len(all_setups)} potential setups")
+            print(f"Total: {len(all_setups)} potential setups")
 
         # Simulate trades
         trades = []

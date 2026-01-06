@@ -6,29 +6,35 @@ This is an **Elliott Wave trading strategy backtesting system** for crypto (BTC,
 
 ## Critical Information
 
-### ALWAYS Use the Optimized Engine
+### Choose the Right Engine
 ```python
-# CORRECT - Use this
+# For SPEED (Modules A & B only):
 from backtest.engine.backtest_optimized import OptimizedBacktestEngine
 
-# WRONG - Do NOT use (takes 72+ hours for 1m data)
+# For ACCURACY & ALL MODULES (A, B, C):
+from backtest.engine.backtest_fixed import FixedBacktestEngine
+
+# NEVER use (takes 72+ hours for 1m data):
 from backtest.engine.backtest import BacktestEngine
 ```
 
-### Project Status (as of January 2026)
+### Project Status (as of January 6, 2026)
 - ✅ Strategy fully documented
 - ✅ Data download working (Binance API)
 - ✅ Optimized backtest engine (~200,000x faster than original)
+- ✅ Fixed backtest engine (all 3 modules, look-ahead bias prevention)
+- ✅ Visual verification tool (interactive HTML charts)
 - ✅ All 12 backtests completed (2 symbols × 6 timeframes)
 - ✅ Results show ~63% win rate, 3.5 profit factor across all configs
-- 🔲 Module C not yet in optimized engine
 - 🔲 Live trading not implemented
 
 ### Key Files to Know
 | File | Purpose |
 |------|---------|
 | `PROJECT.md` | Full project documentation |
-| `backtest/engine/backtest_optimized.py` | **THE** backtest engine to use |
+| `backtest/engine/backtest_optimized.py` | Fast engine (Modules A & B) |
+| `backtest/engine/backtest_fixed.py` | Accurate engine (all modules) |
+| `backtest/visualization/verification_chart.py` | Visual verification HTML generator |
 | `backtest/config/settings.py` | All configuration parameters |
 | `output/backtest_results_summary.csv` | Latest results |
 | `.env` | Binance API credentials |
@@ -58,7 +64,7 @@ result = engine.run(df, 'BTCUSDT', '1h')
 ### Entry Modules
 1. **Module A (Wave 3)**: Enter at 38.2%-78.6% retracement after Wave 1-2
 2. **Module B (Wave 5)**: Enter at 23.6%-50% retracement after Wave 3-4
-3. **Module C (Corrective)**: Enter at pattern completion (NOT in optimized engine yet)
+3. **Module C (Corrective)**: Zigzag, Flat, Triangle patterns (use FixedBacktestEngine)
 
 ### Exit Rules
 - TP1: 40% of position (100% Fib extension)
@@ -88,6 +94,23 @@ Edit `backtest/config/settings.py`:
 - `fib_tolerance_pct`: Entry zone tolerance (default 2.5%)
 - `base_risk_pct`: Risk per trade (default 1.0%)
 - `tp1_pct` / `tp2_pct`: Take profit percentages
+
+### Generate Visual Verification Charts
+```python
+from backtest.visualization.verification_chart import generate_verification_html
+from backtest.config.settings import Config
+import pandas as pd
+
+df = pd.read_csv('data/BTCUSDT_15m.csv')
+df['timestamp'] = pd.to_datetime(df['timestamp'])
+
+config = Config()
+config.module_a_enabled = True  # Or module_b_enabled, module_c_enabled
+
+generate_verification_html(df, 'BTCUSDT', '15m', config, 'output/verification.html')
+```
+
+Or use the helper script: `python3 run_module_backtests.py`
 
 ## User Preferences
 
