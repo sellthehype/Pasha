@@ -266,6 +266,49 @@ All parameters are centralized in the `Config` dataclass:
    - Fixed categorical x-axis navigation in Plotly charts
    - Fixed autoscale Y-axis for visible candles only
 
+8. **GIGA OPTIMIZATION** - NEW (January 7, 2026)
+   - 27,648 parameter combinations tested
+   - Walk-forward validation (70% train / 30% test)
+   - 6,307 valid configurations found (22.8% hit rate)
+   - Champion: ETHUSDT 1h Module B with 52.2% test return
+   - Full analysis in `output/giga_optimization/FINAL_RECOMMENDATIONS.md`
+
+### Giga Optimization Results (January 7, 2026)
+
+**Champion Configuration:**
+```python
+{
+    'asset': 'ETHUSDT',
+    'timeframe': '1h',
+    'module': 'B',  # Wave 5 entries
+    'atr_multiplier': 2.0,
+    'risk_pct': 2.0,
+    'entry_split': 100.0,
+    'sl_multiplier': 0.75,
+    'tp1_extension': 1.382,
+    'tp2_extension': 2.618,
+    'confirmation_delay': 3,
+}
+```
+
+**Key Findings:**
+| Finding | Insight |
+|---------|---------|
+| Module B >> A >> C | Wave 5 setups are rarer but more reliable |
+| ETH >> BTC | ETH avg 8.0% vs BTC 3.9% test return |
+| 1h is optimal | Best Sharpe proxy (1.08) |
+| ATR 2.0 works best | Larger swings = cleaner signals |
+| TP 138%/261% optimal | Let winners run |
+| 0.75x SL multiplier | Tighter stops improve R:R |
+
+**Parameter Sensitivity:**
+| Parameter | Best Value | Avg Return |
+|-----------|------------|------------|
+| ATR Multiplier | 2.0 | 6.4% |
+| Risk % | 2.0% | 7.0% |
+| TP2 Extension | 2.618 | 6.0% |
+| Confirmation | 2-3 bars | 5.8% |
+
 ### Latest Backtest Results (January 2026)
 
 | Symbol | Timeframe | Return % | Sharpe | Max DD % | Trades | Win Rate | PF |

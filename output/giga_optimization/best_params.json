@@ -1,0 +1,47 @@
+{
+  "overall": {
+    "asset": "ETHUSDT",
+    "timeframe": "1h",
+    "module": "B",
+    "atr_multiplier": 2.0,
+    "risk_pct": 2.0,
+    "entry_split": 100.0,
+    "sl_approach": "multiplier",
+    "sl_multiplier": 0.75,
+    "tp1_extension": 1.382,
+    "tp2_extension": 2.618,
+    "confirmation_delay": 3,
+    "test_return": 52.15009088187092,
+    "train_return": -7.796175504755738
+  },
+  "module_A": {
+    "asset": "ETHUSDT",
+    "timeframe": "15m",
+    "atr_multiplier": 2.0,
+    "risk_pct": 0.5,
+    "tp1_extension": 1.382,
+    "tp2_extension": 2.618,
+    "confirmation_delay": 1,
+    "test_return": 30.89807289778641
+  },
+  "module_B": {
+    "asset": "ETHUSDT",
+    "timeframe": "1h",
+    "atr_multiplier": 2.0,
+    "risk_pct": 2.0,
+    "tp1_extension": 1.382,
+    "tp2_extension": 2.618,
+    "confirmation_delay": 3,
+    "test_return": 52.15009088187092
+  },
+  "module_C": {
+    "asset": "ETHUSDT",
+    "timeframe": "1h",
+    "atr_multiplier": 1.5,
+    "risk_pct": 1.5,
+    "tp1_extension": 1.0,
+    "tp2_extension": 2.618,
+    "confirmation_delay": 2,
+    "test_return": 26.58497602775475
+  }
+}

@@ -1,0 +1,111 @@
+======================================================================
+GIGA OPTIMIZER FAST
+======================================================================
+
+==================================================
+MODULE A
+==================================================
+
+--- BTCUSDT 4h ---
+  Skipping: insufficient data
+
+--- BTCUSDT 1h ---
+  Tested: 1152 | Valid: 356 | Best: 23.9%
+
+--- BTCUSDT 15m ---
+  Tested: 1152 | Valid: 30 | Best: 7.8%
+
+--- BTCUSDT 5m ---
+  Tested: 1152 | Valid: 3 | Best: 2.3%
+
+--- BTCUSDT 1m ---
+  Tested: 1152 | Valid: 0
+
+--- ETHUSDT 4h ---
+  Skipping: insufficient data
+
+--- ETHUSDT 1h ---
+  Tested: 1152 | Valid: 215 | Best: 16.0%
+
+--- ETHUSDT 15m ---
+  Tested: 1152 | Valid: 97 | Best: 30.9%
+
+--- ETHUSDT 5m ---
+  Tested: 1152 | Valid: 0
+
+--- ETHUSDT 1m ---
+  Tested: 1152 | Valid: 0
+
+==================================================
+MODULE B
+==================================================
+
+--- BTCUSDT 4h ---
+  Skipping: insufficient data
+
+--- BTCUSDT 1h ---
+  Tested: 1152 | Valid: 826 | Best: 10.5%
+
+--- BTCUSDT 15m ---
+  Tested: 1152 | Valid: 493 | Best: 13.3%
+
+--- BTCUSDT 5m ---
+  Tested: 1152 | Valid: 514 | Best: 16.8%
+
+--- BTCUSDT 1m ---
+  Tested: 1152 | Valid: 1079 | Best: 18.4%
+
+--- ETHUSDT 4h ---
+  Skipping: insufficient data
+
+--- ETHUSDT 1h ---
+  Tested: 1152 | Valid: 684 | Best: 52.2%
+
+--- ETHUSDT 15m ---
+  Tested: 1152 | Valid: 165 | Best: 13.0%
+
+--- ETHUSDT 5m ---
+  Tested: 1152 | Valid: 450 | Best: 24.7%
+
+--- ETHUSDT 1m ---
+  Tested: 1152 | Valid: 613 | Best: 43.1%
+
+==================================================
+MODULE C
+==================================================
+
+--- BTCUSDT 4h ---
+  Skipping: insufficient data
+
+--- BTCUSDT 1h ---
+  Tested: 1152 | Valid: 273 | Best: 19.2%
+
+--- BTCUSDT 15m ---
+  Tested: 1152 | Valid: 0
+
+--- BTCUSDT 5m ---
+  Tested: 1152 | Valid: 0
+
+--- BTCUSDT 1m ---
+  Tested: 1152 | Valid: 0
+
+--- ETHUSDT 4h ---
+  Skipping: insufficient data
+
+--- ETHUSDT 1h ---
+  Tested: 1152 | Valid: 375 | Best: 26.6%
+
+--- ETHUSDT 15m ---
+  Tested: 1152 | Valid: 134 | Best: 18.6%
+
+--- ETHUSDT 5m ---
+  Tested: 1152 | Valid: 0
+
+--- ETHUSDT 1m ---
+  Tested: 1152 | Valid: 0
+
+======================================================================
+COMPLETE: 27648 runs, 6307 valid
+Results: output/giga_optimization/all_results.csv
+======================================================================
+Summary saved: output/giga_optimization/summary.md
