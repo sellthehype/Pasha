@@ -16,11 +16,11 @@ import html
 
 from ..config.settings import Config
 from ..indicators.atr import calculate_atr
-from ..engine.backtest_fixed import (
+from ..engine.backtest import (
     RealisticPivotDetector,
     RealisticWaveAnalyzer,
     Trade,
-    FixedBacktestResult
+    BacktestResult
 )
 
 
@@ -129,11 +129,12 @@ class EquityPoint:
 @dataclass
 class AuditIssue:
     """Audit finding"""
-    type: str  # 'timing', 'price', 'wave', 'data'
+    type: str  # 'timing', 'price', 'wave', 'data', 'conflict'
     severity: str  # 'warning', 'error'
     trade_id: Optional[int]
     bar: int
     message: str
+    modules: List[str] = field(default_factory=list)  # Which modules this issue relates to
 
 
 class VerificationDataCollector:
@@ -230,10 +231,21 @@ class VerificationDataCollector:
         # Sort by entry bar
         all_patterns.sort(key=lambda x: x.entry_bar)
 
+        # CRITICAL: Remove conflicting entries (LONG and SHORT on same bar)
+        conflict_issues = []
+        all_patterns = self._remove_conflicting_patterns(all_patterns, conflict_issues)
+
+        # Re-assign IDs after conflict removal
+        for i, p in enumerate(all_patterns):
+            p.id = i
+
         # Run simulation
         trades, equity_curve, audit_issues = self._simulate_trades(
             all_patterns, open_prices, high, low, close, timestamps
         )
+
+        # Add conflict issues to audit
+        audit_issues.extend(conflict_issues)
 
         # Build candle data
         candles = []
@@ -1009,25 +1021,6 @@ class VerificationDataCollector:
                     trades.append(trade)
                     closed_trades.append(trade)
 
-                    # Audit: verify exit price matches OHLC
-                    if exit_reason == 'Stop Loss':
-                        if trade.direction == 'long' and exit_price > current_low:
-                            audit_issues.append(AuditIssue(
-                                type='price',
-                                severity='warning',
-                                trade_id=trade.id,
-                                bar=i,
-                                message=f"Stop loss price {exit_price:.2f} above bar low {current_low:.2f}"
-                            ))
-                        elif trade.direction == 'short' and exit_price < current_high:
-                            audit_issues.append(AuditIssue(
-                                type='price',
-                                severity='warning',
-                                trade_id=trade.id,
-                                bar=i,
-                                message=f"Stop loss price {exit_price:.2f} below bar high {current_high:.2f}"
-                            ))
-
             for t in closed_trades:
                 open_trades.remove(t)
 
@@ -1101,7 +1094,8 @@ class VerificationDataCollector:
                         severity='error',
                         trade_id=trade.id,
                         bar=i,
-                        message=f"Entry bar {pattern.entry_bar} not after confirmed bar {pattern.confirmed_bar}"
+                        message=f"Entry bar {pattern.entry_bar} not after confirmed bar {pattern.confirmed_bar}",
+                        modules=[trade.module]
                     ))
 
                 # Audit: verify entry price
@@ -1112,7 +1106,8 @@ class VerificationDataCollector:
                         severity='warning',
                         trade_id=trade.id,
                         bar=i,
-                        message=f"Entry price {pattern.entry_price:.2f} doesn't match bar open {expected_open:.2f}"
+                        message=f"Entry price {pattern.entry_price:.2f} doesn't match bar open {expected_open:.2f}",
+                        modules=[trade.module]
                     ))
 
             # Record equity
@@ -1171,6 +1166,57 @@ class VerificationDataCollector:
 
         return trades, equity_curve, audit_issues
 
+    def _remove_conflicting_patterns(
+        self,
+        patterns: List[DetailedPattern],
+        audit_issues: List[AuditIssue]
+    ) -> List[DetailedPattern]:
+        """
+        Remove conflicting patterns where LONG and SHORT occur on same bar.
+
+        This can happen when consecutive pivot patterns generate opposite signals:
+        - H-L-H pattern → SHORT
+        - L-H-L pattern → LONG
+        If both have the same entry_bar, we have a conflict.
+
+        Strategy: Remove ALL conflicting patterns (ambiguous market signal).
+        """
+        if not patterns:
+            return patterns
+
+        # Group patterns by entry_bar
+        by_bar = {}
+        for pattern in patterns:
+            bar = pattern.entry_bar
+            if bar not in by_bar:
+                by_bar[bar] = []
+            by_bar[bar].append(pattern)
+
+        # Filter out bars with conflicting directions
+        filtered = []
+        for bar, bar_patterns in by_bar.items():
+            directions = set(p.direction for p in bar_patterns)
+            if len(directions) == 1:
+                # All same direction - keep all patterns on this bar
+                filtered.extend(bar_patterns)
+            else:
+                # CONFLICT: Both LONG and SHORT on same bar
+                # Log this as an audit warning
+                conflict_modules = list(set(p.module for p in bar_patterns))
+                audit_issues.append(AuditIssue(
+                    type='conflict',
+                    severity='warning',
+                    trade_id=None,
+                    bar=bar,
+                    message=f"Conflicting signals (LONG+SHORT) removed at bar {bar}: "
+                            f"{len(bar_patterns)} patterns ({', '.join(p.type for p in bar_patterns)})",
+                    modules=conflict_modules
+                ))
+
+        # Re-sort by entry_bar (dict iteration may have changed order)
+        filtered.sort(key=lambda x: x.entry_bar)
+        return filtered
+
     def _calculate_metrics(
         self,
         trades: List[DetailedTrade],
@@ -1184,7 +1230,8 @@ class VerificationDataCollector:
                 'total_return_pct': 0,
                 'sharpe': 0,
                 'max_drawdown_pct': 0,
-                'profit_factor': 0
+                'profit_factor': 0,
+                'initial_balance': self.config.initial_balance
             }
 
         pnls = [t.pnl_net for t in trades]
@@ -1219,7 +1266,8 @@ class VerificationDataCollector:
             'avg_win': np.mean(wins) if wins else 0,
             'avg_loss': np.mean(losses) if losses else 0,
             'largest_win': max(wins) if wins else 0,
-            'largest_loss': min(losses) if losses else 0
+            'largest_loss': min(losses) if losses else 0,
+            'initial_balance': self.config.initial_balance
         }
 
     def _validate_data(self, df: pd.DataFrame, candles: List[Dict]) -> List[AuditIssue]:
@@ -1359,8 +1407,7 @@ def _build_audit_html(audit_list: list) -> str:
     items = []
     for a in audit_list[:15]:
         trade_id = a['trade_id'] if a['trade_id'] is not None else 'null'
-        msg = a['message'][:35] + '...' if len(a['message']) > 35 else a['message']
-        item = f'<div class="audit-item" onclick="goToAuditIssue({a["bar"]}, {trade_id})"><span class="audit-badge {a["severity"]}">{a["type"]}</span><span class="toggle-label">Bar {a["bar"]}: {msg}</span></div>'
+        item = f'<div class="audit-item" onclick="goToAuditIssue({a["bar"]}, {trade_id})"><span class="audit-badge {a["severity"]}">{a["type"]}</span><span class="audit-text">Bar {a["bar"]}: {a["message"]}</span></div>'
         items.append(item)
 
     return ''.join(items)
@@ -1662,20 +1709,29 @@ def _generate_html(data: Dict) -> str:
 
         .module-a {{ color: #58a6ff; }}
         .module-b {{ color: #d29922; }}
+        .module-c {{ color: #a371f7; }}
 
         .audit-item {{
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             gap: 10px;
-            padding: 6px 8px;
-            margin: 4px 0;
+            padding: 8px 10px;
+            margin: 6px 0;
             border-radius: 4px;
             cursor: pointer;
             transition: background 0.2s;
+            background: #21262d;
         }}
 
         .audit-item:hover {{
             background: #30363d;
+        }}
+
+        .audit-text {{
+            flex: 1;
+            word-wrap: break-word;
+            line-height: 1.4;
+            font-size: 12px;
         }}
     </style>
 </head>
@@ -1684,27 +1740,27 @@ def _generate_html(data: Dict) -> str:
         <h1>{data['symbol']} {data['timeframe']} Backtest Verification</h1>
         <div class="metrics-bar">
             <div class="metric">
-                <div class="metric-value neutral">{data['metrics']['total_trades']}</div>
+                <div class="metric-value neutral" id="stat-trades">{data['metrics']['total_trades']}</div>
                 <div class="metric-label">Trades</div>
             </div>
             <div class="metric">
-                <div class="metric-value {'positive' if data['metrics']['win_rate'] >= 50 else 'negative'}">{data['metrics']['win_rate']:.1f}%</div>
+                <div class="metric-value" id="stat-winrate">{data['metrics']['win_rate']:.1f}%</div>
                 <div class="metric-label">Win Rate</div>
             </div>
             <div class="metric">
-                <div class="metric-value {'positive' if data['metrics']['total_return_pct'] >= 0 else 'negative'}">{data['metrics']['total_return_pct']:.2f}%</div>
+                <div class="metric-value" id="stat-return">{data['metrics']['total_return_pct']:.2f}%</div>
                 <div class="metric-label">Return</div>
             </div>
             <div class="metric">
-                <div class="metric-value {'positive' if data['metrics']['sharpe'] >= 0 else 'negative'}">{data['metrics']['sharpe']:.2f}</div>
+                <div class="metric-value" id="stat-sharpe">{data['metrics']['sharpe']:.2f}</div>
                 <div class="metric-label">Sharpe</div>
             </div>
             <div class="metric">
-                <div class="metric-value negative">{data['metrics']['max_drawdown_pct']:.2f}%</div>
+                <div class="metric-value negative" id="stat-maxdd">{data['metrics']['max_drawdown_pct']:.2f}%</div>
                 <div class="metric-label">Max DD</div>
             </div>
             <div class="metric">
-                <div class="metric-value {'positive' if data['metrics']['profit_factor'] >= 1 else 'negative'}">{data['metrics']['profit_factor']:.2f}</div>
+                <div class="metric-value" id="stat-pf">{data['metrics']['profit_factor']:.2f}</div>
                 <div class="metric-label">Profit Factor</div>
             </div>
         </div>
@@ -1739,6 +1795,24 @@ def _generate_html(data: Dict) -> str:
         </div>
 
         <div class="sidebar">
+            <div class="sidebar-section">
+                <h3>Module Filters</h3>
+                <div class="toggle-group">
+                    <div class="toggle-item">
+                        <div class="toggle-switch active" id="toggle-module-A" onclick="toggleModule('A')"></div>
+                        <span class="toggle-label">Module A (Wave 3)</span>
+                    </div>
+                    <div class="toggle-item">
+                        <div class="toggle-switch active" id="toggle-module-B" onclick="toggleModule('B')"></div>
+                        <span class="toggle-label">Module B (Wave 5)</span>
+                    </div>
+                    <div class="toggle-item">
+                        <div class="toggle-switch active" id="toggle-module-C" onclick="toggleModule('C')"></div>
+                        <span class="toggle-label">Module C (Corrective)</span>
+                    </div>
+                </div>
+            </div>
+
             <div class="sidebar-section">
                 <h3>Display Options</h3>
                 <div class="toggle-group">
@@ -1781,9 +1855,9 @@ def _generate_html(data: Dict) -> str:
             </div>
 
             <div class="sidebar-section">
-                <h3>Audit Issues ({len(data['audit'])})</h3>
+                <h3>Audit Issues (<span id="audit-count">{len(data['audit'])}</span>)</h3>
                 <div id="audit-list">
-                    {_build_audit_html(data['audit'])}
+                    <!-- Rendered dynamically by renderAuditIssues() -->
                 </div>
             </div>
 
@@ -1809,26 +1883,197 @@ def _generate_html(data: Dict) -> str:
             paths: true,
             pivots: true
         }};
+        let moduleFilters = {{
+            A: true,
+            B: true,
+            C: true
+        }};
+
+        // Get filtered trades based on module filters
+        function getFilteredTrades() {{
+            return DATA.trades.filter(t => moduleFilters[t.module]);
+        }}
+
+        // Get filtered patterns based on module filters
+        function getFilteredPatterns() {{
+            return DATA.patterns.filter(p => moduleFilters[p.module]);
+        }}
+
+        // Get filtered audit issues based on module filters
+        function getFilteredAuditIssues() {{
+            return DATA.audit.filter(a => {{
+                // If audit has modules array, check if any are active
+                if (a.modules && a.modules.length > 0) {{
+                    return a.modules.some(m => moduleFilters[m]);
+                }}
+                // If no modules specified (e.g., data issues), always show
+                return true;
+            }});
+        }}
+
+        // Render audit issues list
+        function renderAuditIssues() {{
+            const issues = getFilteredAuditIssues();
+            const container = document.getElementById('audit-list');
+            const countEl = document.getElementById('audit-count');
+
+            countEl.textContent = issues.length;
+
+            if (issues.length === 0) {{
+                container.innerHTML = '<div style="color: #666; font-size: 12px;">No audit issues for selected modules</div>';
+                return;
+            }}
+
+            // Show first 15 issues
+            const html = issues.slice(0, 15).map(a => {{
+                const tradeId = a.trade_id !== null ? a.trade_id : 'null';
+                return `<div class="audit-item" onclick="goToAuditIssue(${{a.bar}}, ${{tradeId}})">` +
+                    `<span class="audit-badge ${{a.severity}}">${{a.type}}</span>` +
+                    `<span class="audit-text">Bar ${{a.bar}}: ${{a.message}}</span></div>`;
+            }}).join('');
+
+            container.innerHTML = html;
+        }}
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {{
+            loadModuleFiltersFromStorage();
             renderTradeTable();
             renderCharts();
+            recalculateStats();
+            renderAuditIssues();
             setupEventListeners();
         }});
+
+        // Load module filter state from localStorage
+        function loadModuleFiltersFromStorage() {{
+            const saved = localStorage.getItem('pasha_module_filters');
+            if (saved) {{
+                try {{
+                    const parsed = JSON.parse(saved);
+                    moduleFilters = {{ ...moduleFilters, ...parsed }};
+                    // Update toggle UI
+                    Object.keys(moduleFilters).forEach(mod => {{
+                        const toggle = document.getElementById('toggle-module-' + mod);
+                        if (toggle) {{
+                            toggle.classList.toggle('active', moduleFilters[mod]);
+                        }}
+                    }});
+                }} catch (e) {{
+                    console.warn('Failed to load module filters from storage');
+                }}
+            }}
+        }}
+
+        // Save module filter state to localStorage
+        function saveModuleFiltersToStorage() {{
+            localStorage.setItem('pasha_module_filters', JSON.stringify(moduleFilters));
+        }}
+
+        // Toggle module filter
+        function toggleModule(module) {{
+            moduleFilters[module] = !moduleFilters[module];
+            document.getElementById('toggle-module-' + module).classList.toggle('active');
+            saveModuleFiltersToStorage();
+            renderTradeTable();
+            renderCharts();
+            recalculateStats();
+            renderAuditIssues();
+            setTimeout(autoscaleYAxis, 100);
+        }}
+
+        // Recalculate stats based on filtered trades
+        function recalculateStats() {{
+            const trades = getFilteredTrades();
+            const initialBalance = {data['metrics']['initial_balance']};
+
+            if (trades.length === 0) {{
+                document.getElementById('stat-trades').textContent = '0';
+                document.getElementById('stat-trades').className = 'metric-value neutral';
+                document.getElementById('stat-winrate').textContent = '0.0%';
+                document.getElementById('stat-winrate').className = 'metric-value neutral';
+                document.getElementById('stat-return').textContent = '0.00%';
+                document.getElementById('stat-return').className = 'metric-value neutral';
+                document.getElementById('stat-sharpe').textContent = '0.00';
+                document.getElementById('stat-sharpe').className = 'metric-value neutral';
+                document.getElementById('stat-maxdd').textContent = '0.00%';
+                document.getElementById('stat-maxdd').className = 'metric-value neutral';
+                document.getElementById('stat-pf').textContent = '0.00';
+                document.getElementById('stat-pf').className = 'metric-value neutral';
+                return;
+            }}
+
+            // Calculate stats
+            const wins = trades.filter(t => t.pnl_net > 0);
+            const losses = trades.filter(t => t.pnl_net <= 0);
+            const winRate = (wins.length / trades.length) * 100;
+
+            const totalPnl = trades.reduce((sum, t) => sum + t.pnl_net, 0);
+            const returnPct = (totalPnl / initialBalance) * 100;
+
+            const grossProfit = wins.reduce((sum, t) => sum + t.pnl_net, 0);
+            const grossLoss = Math.abs(losses.reduce((sum, t) => sum + t.pnl_net, 0));
+            const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit;
+
+            // Calculate equity curve and max drawdown for filtered trades
+            let equity = initialBalance;
+            let peak = equity;
+            let maxDrawdown = 0;
+            let equityHistory = [equity];
+
+            // Sort trades by entry bar to calculate equity curve correctly
+            const sortedTrades = [...trades].sort((a, b) => a.entry_bar - b.entry_bar);
+            sortedTrades.forEach(t => {{
+                equity += t.pnl_net;
+                equityHistory.push(equity);
+                if (equity > peak) peak = equity;
+                const dd = (peak - equity) / peak * 100;
+                if (dd > maxDrawdown) maxDrawdown = dd;
+            }});
+
+            // Simple Sharpe approximation
+            const returns = [];
+            for (let i = 1; i < equityHistory.length; i++) {{
+                returns.push((equityHistory[i] - equityHistory[i-1]) / equityHistory[i-1]);
+            }}
+            const avgReturn = returns.length > 0 ? returns.reduce((a, b) => a + b, 0) / returns.length : 0;
+            const stdReturn = returns.length > 1 ? Math.sqrt(returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / (returns.length - 1)) : 0;
+            const sharpe = stdReturn > 0 ? (avgReturn / stdReturn) * Math.sqrt(252) : 0;
+
+            // Update UI
+            document.getElementById('stat-trades').textContent = trades.length;
+            document.getElementById('stat-trades').className = 'metric-value neutral';
+
+            document.getElementById('stat-winrate').textContent = winRate.toFixed(1) + '%';
+            document.getElementById('stat-winrate').className = 'metric-value ' + (winRate >= 50 ? 'positive' : 'negative');
+
+            document.getElementById('stat-return').textContent = (returnPct >= 0 ? '+' : '') + returnPct.toFixed(2) + '%';
+            document.getElementById('stat-return').className = 'metric-value ' + (returnPct >= 0 ? 'positive' : 'negative');
+
+            document.getElementById('stat-sharpe').textContent = sharpe.toFixed(2);
+            document.getElementById('stat-sharpe').className = 'metric-value ' + (sharpe >= 0 ? 'positive' : 'negative');
+
+            document.getElementById('stat-maxdd').textContent = maxDrawdown.toFixed(2) + '%';
+            document.getElementById('stat-maxdd').className = 'metric-value negative';
+
+            document.getElementById('stat-pf').textContent = profitFactor.toFixed(2);
+            document.getElementById('stat-pf').className = 'metric-value ' + (profitFactor >= 1 ? 'positive' : 'negative');
+        }}
 
         function renderTradeTable() {{
             const tbody = document.getElementById('trade-table-body');
             tbody.innerHTML = '';
 
-            DATA.trades.forEach(trade => {{
+            const filteredTrades = getFilteredTrades();
+            filteredTrades.forEach(trade => {{
                 const row = document.createElement('tr');
                 row.dataset.tradeId = trade.id;
+                const moduleClass = trade.module === 'A' ? 'module-a' : (trade.module === 'B' ? 'module-b' : 'module-c');
                 row.innerHTML = `
                     <td>${{trade.id + 1}}</td>
                     <td>${{trade.entry_date}}</td>
                     <td>${{trade.direction === 'long' ? '▲' : '▼'}}</td>
-                    <td class="${{trade.module === 'A' ? 'module-a' : 'module-b'}}">${{trade.module}}</td>
+                    <td class="${{moduleClass}}">${{trade.module}}</td>
                     <td>${{trade.entry_price.toFixed(2)}}</td>
                     <td>${{trade.final_exit_price ? trade.final_exit_price.toFixed(2) : '-'}}</td>
                     <td class="${{trade.pnl_net >= 0 ? 'pnl-positive' : 'pnl-negative'}}">${{trade.pnl_net >= 0 ? '+' : ''}}${{trade.pnl_net.toFixed(2)}}</td>
@@ -1865,30 +2110,60 @@ def _generate_html(data: Dict) -> str:
             const shapes = [];
             const annotations = [];
 
-            // Add trade markers and paths
-            DATA.trades.forEach(trade => {{
+            // Add trade markers and paths (filtered by module)
+            const filteredTrades = getFilteredTrades();
+
+            // Group trades by entry bar to handle overlapping entries
+            const tradesByEntryBar = {{}};
+            filteredTrades.forEach(trade => {{
+                if (!tradesByEntryBar[trade.entry_bar]) {{
+                    tradesByEntryBar[trade.entry_bar] = [];
+                }}
+                tradesByEntryBar[trade.entry_bar].push(trade);
+            }});
+
+            filteredTrades.forEach(trade => {{
                 const entryDate = candles[trade.entry_bar].date;
                 const exitDate = trade.final_exit_bar !== null ? candles[trade.final_exit_bar].date : dates[dates.length - 1];
 
-                // Entry marker
+                // Module colors: A=blue, B=gold, C=purple
+                const moduleColor = trade.module === 'A' ? '#58a6ff' : (trade.module === 'B' ? '#d29922' : '#a371f7');
+
+                // Calculate offset for overlapping entries on same bar
+                const tradesOnSameBar = tradesByEntryBar[trade.entry_bar];
+                const indexOnBar = tradesOnSameBar.indexOf(trade);
+                const totalOnBar = tradesOnSameBar.length;
+
+                // Offset Y position for multiple trades on same bar
+                const candle = candles[trade.entry_bar];
+                const barRange = candle.high - candle.low;
+                let yOffset = 0;
+                if (totalOnBar > 1) {{
+                    // Spread markers vertically within the bar range
+                    const spacing = barRange * 0.15;
+                    yOffset = (indexOnBar - (totalOnBar - 1) / 2) * spacing;
+                }}
+
+                // Entry marker with offset
+                const entryY = trade.entry_price + yOffset;
                 traces.push({{
                     x: [entryDate],
-                    y: [trade.entry_price],
+                    y: [entryY],
                     mode: 'markers+text',
                     type: 'scatter',
                     marker: {{
                         symbol: trade.direction === 'long' ? 'triangle-up' : 'triangle-down',
                         size: 14,
-                        color: trade.module === 'A' ? '#58a6ff' : '#d29922',
-                        line: {{color: '#fff', width: 1}}
+                        color: moduleColor,
+                        line: {{color: '#fff', width: 2}}
                     }},
-                    text: [trade.module],
+                    text: [trade.module + (totalOnBar > 1 ? (indexOnBar + 1) : '')],
                     textposition: trade.direction === 'long' ? 'top center' : 'bottom center',
-                    textfont: {{color: '#fff', size: 10}},
+                    textfont: {{color: '#fff', size: 10, weight: 'bold'}},
                     name: `Trade ${{trade.id + 1}} Entry`,
                     showlegend: false,
                     hoverinfo: 'text',
-                    hovertext: `Entry: ${{trade.entry_price.toFixed(2)}}<br>Module ${{trade.module}} ${{trade.direction}}`
+                    hovertext: `Trade #${{trade.id + 1}}<br>Entry: ${{trade.entry_price.toFixed(2)}}<br>Module ${{trade.module}} ${{trade.direction}}${{totalOnBar > 1 ? '<br>(Trade ' + (indexOnBar + 1) + ' of ' + totalOnBar + ' on this bar)' : ''}}`
                 }});
 
                 // Exit marker
@@ -2001,11 +2276,13 @@ def _generate_html(data: Dict) -> str:
 
             // Add wave patterns
             if (layers.waves) {{
-                DATA.patterns.forEach(pattern => {{
+                const filteredPatterns = getFilteredPatterns();
+                filteredPatterns.forEach(pattern => {{
                     if (!pattern.traded && !layers.nontraded) return;
 
                     const opacity = pattern.traded ? 0.8 : 0.3;
-                    const color = pattern.module === 'A' ? '#58a6ff' : '#d29922';
+                    // Module colors: A=blue, B=gold, C=purple
+                    const color = pattern.module === 'A' ? '#58a6ff' : (pattern.module === 'B' ? '#d29922' : '#a371f7');
 
                     const waveX = pattern.pivot_indices.map(idx => candles[idx].date);
                     const waveY = pattern.pivot_prices;
@@ -2372,7 +2649,7 @@ def _generate_html(data: Dict) -> str:
             // Keyboard navigation
             document.addEventListener('keydown', function(e) {{
                 if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {{
-                    const trades = DATA.trades;
+                    const trades = getFilteredTrades();
                     if (trades.length === 0) return;
 
                     let newIdx;
@@ -2380,9 +2657,14 @@ def _generate_html(data: Dict) -> str:
                         newIdx = e.key === 'ArrowRight' ? 0 : trades.length - 1;
                     }} else {{
                         const currentIdx = trades.findIndex(t => t.id === selectedTradeId);
-                        newIdx = e.key === 'ArrowRight' ?
-                            Math.min(currentIdx + 1, trades.length - 1) :
-                            Math.max(currentIdx - 1, 0);
+                        if (currentIdx === -1) {{
+                            // Current selection not in filtered list
+                            newIdx = 0;
+                        }} else {{
+                            newIdx = e.key === 'ArrowRight' ?
+                                Math.min(currentIdx + 1, trades.length - 1) :
+                                Math.max(currentIdx - 1, 0);
+                        }}
                     }}
 
                     selectTrade(trades[newIdx].id);

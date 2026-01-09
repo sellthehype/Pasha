@@ -6,23 +6,26 @@ This is an **Elliott Wave trading strategy backtesting system** for crypto (BTC,
 
 ## Critical Information
 
-### Choose the Right Engine
+### Backtest Engine
 ```python
-# For SPEED (Modules A & B only):
-from backtest.engine.backtest_optimized import OptimizedBacktestEngine
-
-# For ACCURACY & ALL MODULES (A, B, C):
-from backtest.engine.backtest_fixed import FixedBacktestEngine
-
-# NEVER use (takes 72+ hours for 1m data):
 from backtest.engine.backtest import BacktestEngine
+from backtest.config.settings import Config
+from backtest.data.storage import DataStorage
+
+storage = DataStorage('data')
+config = Config()
+engine = BacktestEngine(config)
+
+df = storage.load('BTCUSDT', '1h')
+result = engine.run(df, 'BTCUSDT', '1h')
 ```
 
-### Project Status (as of January 7, 2026)
+There is only ONE engine now. The old broken engines were deleted on January 9, 2026.
+
+### Project Status (as of January 9, 2026)
 - ✅ Strategy fully documented
 - ✅ Data download working (Binance API)
-- ✅ Optimized backtest engine (~200,000x faster than original)
-- ✅ Fixed backtest engine (all 3 modules, look-ahead bias prevention)
+- ✅ Backtest engine (all 3 modules, no look-ahead bias)
 - ✅ Visual verification tool (interactive HTML charts)
 - ✅ All 12 backtests completed (2 symbols × 6 timeframes)
 - ✅ **GIGA OPTIMIZATION COMPLETE** (27,648 backtests, 6,307 valid)
@@ -33,28 +36,13 @@ from backtest.engine.backtest import BacktestEngine
 | File | Purpose |
 |------|---------|
 | `PROJECT.md` | Full project documentation |
-| `backtest/engine/backtest_optimized.py` | Fast engine (Modules A & B) |
-| `backtest/engine/backtest_fixed.py` | Accurate engine (all modules) |
+| `backtest/engine/backtest.py` | Backtest engine (all 3 modules) |
 | `backtest/visualization/verification_chart.py` | Visual verification HTML generator |
 | `backtest/config/settings.py` | All configuration parameters |
 | `giga_optimizer_fast.py` | Parameter optimization tool |
 | `output/giga_optimization/best_params.json` | Optimal parameters |
 | `output/giga_optimization/FINAL_RECOMMENDATIONS.md` | Optimization analysis |
 | `.env` | Binance API credentials |
-
-### Running Backtests
-```python
-from backtest.config.settings import Config
-from backtest.engine.backtest_optimized import OptimizedBacktestEngine
-from backtest.data.storage import DataStorage
-
-storage = DataStorage('data')
-config = Config()
-engine = OptimizedBacktestEngine(config)
-
-df = storage.load('BTCUSDT', '1h')
-result = engine.run(df, 'BTCUSDT', '1h')
-```
 
 ### Data Location
 - Historical data: `data/` directory
@@ -67,7 +55,7 @@ result = engine.run(df, 'BTCUSDT', '1h')
 ### Entry Modules
 1. **Module A (Wave 3)**: Enter at 38.2%-78.6% retracement after Wave 1-2
 2. **Module B (Wave 5)**: Enter at 23.6%-50% retracement after Wave 3-4
-3. **Module C (Corrective)**: Zigzag, Flat, Triangle patterns (use FixedBacktestEngine)
+3. **Module C (Corrective)**: Zigzag, Flat, Triangle patterns
 
 ### Exit Rules
 - TP1: 40% of position (100% Fib extension)
@@ -83,8 +71,19 @@ result = engine.run(df, 'BTCUSDT', '1h')
 
 ### Re-run All Backtests
 ```python
-# See PROJECT.md for full script
-# Takes ~3 seconds total for all 12 configurations
+from backtest.config.settings import Config
+from backtest.engine.backtest import BacktestEngine
+from backtest.data.storage import DataStorage
+
+storage = DataStorage('data')
+config = Config()
+engine = BacktestEngine(config)
+
+for symbol in ['BTCUSDT', 'ETHUSDT']:
+    for tf in ['1m', '5m', '15m', '1h', '4h', '1d']:
+        df = storage.load(symbol, tf)
+        result = engine.run(df, symbol, tf)
+        print(f"{symbol} {tf}: {result.metrics.total_return_pct:.2f}%")
 ```
 
 ### Add New Symbol

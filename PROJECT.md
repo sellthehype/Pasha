@@ -107,10 +107,9 @@ Pasha/
 │   │   ├── orders.py             # Order handling
 │   │   └── fees.py               # Fee calculation
 │   │
-│   ├── engine/                   # Backtest engines
+│   ├── engine/                   # Backtest engine
 │   │   ├── __init__.py
-│   │   ├── backtest.py           # Original backtest engine (slow)
-│   │   ├── backtest_optimized.py # OPTIMIZED engine (~200,000x faster)
+│   │   ├── backtest.py           # Main backtest engine (all 3 modules)
 │   │   ├── portfolio.py          # Portfolio tracking
 │   │   └── metrics.py            # Performance metrics calculation
 │   │
@@ -155,19 +154,9 @@ Pasha/
 
 ## Key Components
 
-### 1. Backtest Engines
+### 1. Backtest Engine (`backtest/engine/backtest.py`)
 
-#### Optimized Engine (`backtest/engine/backtest_optimized.py`)
-For high-speed backtesting on large datasets. Achieves **~200,000x speedup** over original.
-
-**Performance**:
-- 1m data (1M candles): ~1.2 seconds
-- All 12 backtests: ~3 seconds total
-
-**Limitations**: Module C (corrective patterns) not yet integrated.
-
-#### Fixed Engine (`backtest/engine/backtest_fixed.py`) - NEW
-For accurate backtesting with **all 3 modules** and **look-ahead bias prevention**.
+The canonical backtest engine with **no look-ahead bias** and **all 3 modules**.
 
 **Features**:
 - Tracks pivot CONFIRMATION bars (not just detection)
@@ -176,9 +165,17 @@ For accurate backtesting with **all 3 modules** and **look-ahead bias prevention
 - Full trade audit trail for verification
 - Entry/SL/TP validation to filter invalid setups
 
-**Use this for**: Visual verification, accuracy testing, Module C backtests.
+**Usage**:
+```python
+from backtest.engine.backtest import BacktestEngine
+from backtest.config.settings import Config
 
-### 2. Visual Verification Tool (`backtest/visualization/verification_chart.py`) - NEW
+config = Config()
+engine = BacktestEngine(config)
+result = engine.run(df, 'BTCUSDT', '1h')
+```
+
+### 2. Visual Verification Tool (`backtest/visualization/verification_chart.py`)
 
 Interactive HTML charts for visually verifying backtest correctness.
 
@@ -240,10 +237,10 @@ All parameters are centralized in the `Config` dataclass:
    - Historical data download (2 years: Jan 2024 - Jan 2026)
    - CSV storage system
 
-3. **Backtest Engines**
-   - Original engine (functional but slow)
-   - **Optimized engine** (production-ready, ~200,000x faster)
-   - **Fixed engine** (all 3 modules, look-ahead bias prevention) - NEW
+3. **Backtest Engine**
+   - Single canonical engine with all 3 modules
+   - No look-ahead bias (entries at next bar's open)
+   - Old broken engines deleted (January 9, 2026)
 
 4. **Full Backtests Run**
    - BTCUSDT: All 6 timeframes
@@ -359,15 +356,15 @@ python3 backtest/main.py --action download
 python3 backtest/main.py --action backtest --symbol BTCUSDT --timeframe 1h
 ```
 
-### Run All Backtests (Using Optimized Engine)
+### Run All Backtests
 ```python
 from backtest.config.settings import Config
-from backtest.engine.backtest_optimized import OptimizedBacktestEngine
+from backtest.engine.backtest import BacktestEngine
 from backtest.data.storage import DataStorage
 
 storage = DataStorage('data')
 config = Config()
-engine = OptimizedBacktestEngine(config)
+engine = BacktestEngine(config)
 
 df = storage.load('BTCUSDT', '1h')
 result = engine.run(df, 'BTCUSDT', '1h', show_progress=True)
@@ -386,10 +383,9 @@ python3 backtest/main.py --action optimize --symbol BTCUSDT --timeframe 1h --tri
 ## Future Goals / Roadmap
 
 ### Short Term
-1. **Module C Implementation** - Add corrective pattern entries to optimized engine
-2. **Walk-Forward Analysis** - Validate out-of-sample performance
-3. **Monte Carlo Simulation** - Test strategy robustness
-4. **TradingView Export** - Generate Pine Script alerts
+1. **Walk-Forward Analysis** - Validate out-of-sample performance
+2. **Monte Carlo Simulation** - Test strategy robustness
+3. **TradingView Export** - Generate Pine Script alerts
 
 ### Medium Term
 1. **Live Paper Trading** - Connect to Binance testnet

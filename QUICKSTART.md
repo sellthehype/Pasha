@@ -21,12 +21,12 @@ python3 backtest/main.py --action download
 ## 4. Run a Backtest
 ```python
 from backtest.config.settings import Config
-from backtest.engine.backtest_optimized import OptimizedBacktestEngine
+from backtest.engine.backtest import BacktestEngine
 from backtest.data.storage import DataStorage
 
 storage = DataStorage('data')
 config = Config()
-engine = OptimizedBacktestEngine(config)
+engine = BacktestEngine(config)
 
 # Load data and run
 df = storage.load('BTCUSDT', '1h')
@@ -43,12 +43,12 @@ print(f"Win Rate: {result.metrics.win_rate*100:.1f}%")
 ```bash
 python3 << 'EOF'
 from backtest.config.settings import Config
-from backtest.engine.backtest_optimized import OptimizedBacktestEngine
+from backtest.engine.backtest import BacktestEngine
 from backtest.data.storage import DataStorage
 
 storage = DataStorage('data')
 config = Config()
-engine = OptimizedBacktestEngine(config)
+engine = BacktestEngine(config)
 
 for symbol in ['BTCUSDT', 'ETHUSDT']:
     for tf in ['1m', '5m', '15m', '1h', '4h', '1d']:
@@ -65,8 +65,4 @@ EOF
 ## Key Files
 - `PROJECT.md` - Full documentation
 - `Elliott_Wave_Trading_System.md` - Strategy details
-- `backtest/engine/backtest_optimized.py` - Fast backtest engine
-
-## Performance
-- 1m data (1M candles): ~1.2 seconds
-- All 12 backtests: ~3 seconds total
+- `backtest/engine/backtest.py` - Backtest engine (all 3 modules)

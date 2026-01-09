@@ -17,31 +17,114 @@
   "module_A": {
     "asset": "ETHUSDT",
     "timeframe": "15m",
+    "module": "A",
     "atr_multiplier": 2.0,
     "risk_pct": 0.5,
+    "entry_split": 100.0,
+    "sl_approach": "rule_based",
+    "sl_multiplier": 1.0,
     "tp1_extension": 1.382,
     "tp2_extension": 2.618,
     "confirmation_delay": 1,
-    "test_return": 30.89807289778641
+    "test_return": 30.89807289778641,
+    "train_return": -10.292717777284995
   },
   "module_B": {
     "asset": "ETHUSDT",
     "timeframe": "1h",
+    "module": "B",
     "atr_multiplier": 2.0,
     "risk_pct": 2.0,
+    "entry_split": 100.0,
+    "sl_approach": "multiplier",
+    "sl_multiplier": 0.75,
     "tp1_extension": 1.382,
     "tp2_extension": 2.618,
     "confirmation_delay": 3,
-    "test_return": 52.15009088187092
+    "test_return": 52.15009088187092,
+    "train_return": -7.796175504755738
   },
   "module_C": {
     "asset": "ETHUSDT",
     "timeframe": "1h",
+    "module": "C",
     "atr_multiplier": 1.5,
     "risk_pct": 1.5,
+    "entry_split": 50.0,
+    "sl_approach": "multiplier",
+    "sl_multiplier": 0.75,
     "tp1_extension": 1.0,
     "tp2_extension": 2.618,
     "confirmation_delay": 2,
-    "test_return": 26.58497602775475
+    "test_return": 26.58497602775475,
+    "train_return": 1.8257381909265131
+  },
+  "by_timeframe": {
+    "1m": {
+      "asset": "ETHUSDT",
+      "module": "B",
+      "atr_multiplier": 1.0,
+      "risk_pct": 2.0,
+      "tp1_extension": 1.382,
+      "tp2_extension": 1.618,
+      "confirmation_delay": 2,
+      "test_return": 43.14752238709183,
+      "test_sharpe": 0.4235907595818097
+    },
+    "5m": {
+      "asset": "ETHUSDT",
+      "module": "B",
+      "atr_multiplier": 2.0,
+      "risk_pct": 2.0,
+      "tp1_extension": 1.0,
+      "tp2_extension": 2.618,
+      "confirmation_delay": 1,
+      "test_return": 24.69911744656514,
+      "test_sharpe": 0.6403111675671874
+    },
+    "15m": {
+      "asset": "ETHUSDT",
+      "module": "A",
+      "atr_multiplier": 2.0,
+      "risk_pct": 0.5,
+      "tp1_extension": 1.382,
+      "tp2_extension": 2.618,
+      "confirmation_delay": 1,
+      "test_return": 30.89807289778641,
+      "test_sharpe": 1.2702699765660348
+    },
+    "1h": {
+      "asset": "ETHUSDT",
+      "module": "B",
+      "atr_multiplier": 2.0,
+      "risk_pct": 2.0,
+      "tp1_extension": 1.382,
+      "tp2_extension": 2.618,
+      "confirmation_delay": 3,
+      "test_return": 52.15009088187092,
+      "test_sharpe": 3.75583001384092
+    },
+    "4h": {
+      "asset": "ETHUSDT",
+      "module": "B",
+      "atr_multiplier": 1.0,
+      "risk_pct": 2.0,
+      "tp1_extension": 1.382,
+      "tp2_extension": 2.618,
+      "confirmation_delay": 1,
+      "test_return": 24.499039229569444,
+      "test_sharpe": 4.081840607589315
+    },
+    "1d": {
+      "asset": "BTCUSDT",
+      "module": "A",
+      "atr_multiplier": 1.0,
+      "risk_pct": 2.0,
+      "tp1_extension": 1.382,
+      "tp2_extension": 1.618,
+      "confirmation_delay": 1,
+      "test_return": 12.611725022380725,
+      "test_sharpe": 30.159649199765735
+    }
   }
 }

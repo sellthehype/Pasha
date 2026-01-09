@@ -652,8 +652,10 @@ class GigaOptimizerFast:
 
                     try:
                         df = self.storage.load(asset, tf)
-                        if df is None or len(df) < 5000:
-                            print("  Skipping: insufficient data")
+                        # Minimum data: 500 for 1d, 1000 for 4h, 5000 for others
+                        min_candles = 500 if tf == '1d' else (1000 if tf == '4h' else 5000)
+                        if df is None or len(df) < min_candles:
+                            print(f"  Skipping: insufficient data (need {min_candles}, have {len(df) if df is not None else 0})")
                             continue
                     except Exception as e:
                         print(f"  Skipping: {e}")
