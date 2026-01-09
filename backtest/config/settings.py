@@ -37,6 +37,10 @@ DEFAULT_CONFIG = {
     "tp2_pct": 60,
     "stop_behavior": "breakeven_after_tp1",  # original, breakeven, trailing
 
+    # Stop Loss Approach
+    "sl_approach": "capped",     # 'structure', 'atr', 'capped' (structure capped by ATR)
+    "sl_atr_multiplier": 1.5,    # ATR multiplier for 'atr' or 'capped' approach
+
     # Fees
     "maker_fee_pct": 0.02,
     "taker_fee_pct": 0.04,
@@ -99,6 +103,10 @@ class Config:
     tp1_pct: float = 40.0
     tp2_pct: float = 60.0
     stop_behavior: str = "breakeven_after_tp1"
+
+    # Stop Loss Approach
+    sl_approach: str = "capped"     # 'structure', 'atr', 'capped'
+    sl_atr_multiplier: float = 1.5  # ATR multiplier for 'atr' or 'capped' approach
 
     # Fees
     maker_fee_pct: float = 0.02
@@ -165,6 +173,8 @@ class Config:
             "tp1_pct": self.tp1_pct,
             "tp2_pct": self.tp2_pct,
             "stop_behavior": self.stop_behavior,
+            "sl_approach": self.sl_approach,
+            "sl_atr_multiplier": self.sl_atr_multiplier,
             "maker_fee_pct": self.maker_fee_pct,
             "taker_fee_pct": self.taker_fee_pct,
             "train_test_split": self.train_test_split,

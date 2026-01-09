@@ -44,12 +44,27 @@
 - **Targets**: Based on pattern-specific Fibonacci relationships
 
 ### Position Management
-- **Initial Entry**: 50% of calculated position at Fib zone
-- **Confirmation Entry**: Remaining 50% on higher-low formation
-- **Risk Per Trade**: 1% of equity
+- **Initial Entry**: 100% of calculated position on confirmation (optimized)
+- **Risk Per Trade**: 2% of equity (optimized)
 - **TP1 Exit**: 40% of position
 - **TP2 Exit**: 60% of position (remaining)
 - **After TP1**: Stop moved to breakeven
+
+### Stop Loss Rule (CORE - January 2026)
+**Capped Stops**: Use the TIGHTER of structural stop OR ATR-based stop.
+
+```python
+config.sl_approach = 'capped'      # Default
+config.sl_atr_multiplier = 1.5    # Maximum stop = 1.5x ATR from entry
+```
+
+| Approach | Description | Performance |
+|----------|-------------|-------------|
+| `structure` | Wave invalidation points | -29.8% (too wide) |
+| `atr` | Pure ATR-based stops | Ignores structure |
+| `capped` | **Tighter of both** | **+66.7%** ✓ |
+
+This rule prevents runaway losses when structural stops are too far from entry.
 
 ### Fees (Binance Futures)
 - Maker: 0.02%

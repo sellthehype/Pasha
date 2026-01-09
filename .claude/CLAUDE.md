@@ -63,9 +63,24 @@ There is only ONE engine now. The old broken engines were deleted on January 9, 
 - Stop moved to breakeven after TP1
 
 ### Risk Management
-- 1% risk per trade
-- 50% initial entry, 50% on confirmation
+- 2% risk per trade (optimized)
+- 100% entry on confirmation (optimized)
 - Max 10 concurrent positions
+
+### Stop Loss Rule (CORE)
+**Capped Stops:** Use the TIGHTER of structural or ATR-based stop.
+```python
+config.sl_approach = 'capped'      # Default - structure capped by ATR
+config.sl_atr_multiplier = 1.5    # 1.5x ATR maximum stop distance
+```
+
+This rule improved ETHUSDT 1h from **-30% to +67% return** by preventing runaway losses.
+
+| Approach | Description |
+|----------|-------------|
+| `structure` | Wave invalidation points (often too wide) |
+| `atr` | Pure ATR-based stops (ignores structure) |
+| `capped` | **DEFAULT** - Tighter of structure OR 1.5x ATR |
 
 ## Common Tasks
 
@@ -158,7 +173,8 @@ Binance API may be blocked without VPN. If connection refused:
 - Module B (Wave 5) dominates - 52% hit rate, best returns
 - ETH >> BTC (8.0% avg vs 3.9% avg)
 - 1h timeframe is optimal (best Sharpe proxy: 1.08)
-- ATR 2.0, TP 138%/261%, Risk 2%, Tighter SL (0.75x)
+- ATR 2.0, TP 138%/261%, Risk 2%
+- **Capped stops (1.5x ATR)** - prevents runaway losses
 
 **What Doesn't Work:**
 - Module A/C on 1h (Module B is clearly superior)
@@ -166,6 +182,7 @@ Binance API may be blocked without VPN. If connection refused:
 - 5m/15m timeframes (worst risk-adjusted)
 - 0.5% risk (too conservative)
 - TP2 at 161.8% (leaving money on table)
+- **Wide structural stops** - caused -30% return before fix
 
 **Unusual Pattern:**
 - 12/20 top performers have NEGATIVE training but POSITIVE test returns

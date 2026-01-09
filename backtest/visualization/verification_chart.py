@@ -235,6 +235,12 @@ class VerificationDataCollector:
         conflict_issues = []
         all_patterns = self._remove_conflicting_patterns(all_patterns, conflict_issues)
 
+        # Apply stop loss capping if configured
+        sl_approach = getattr(self.config, 'sl_approach', 'structure')
+        if sl_approach in ('atr', 'capped'):
+            sl_atr_mult = getattr(self.config, 'sl_atr_multiplier', 2.0)
+            self._apply_stop_capping(all_patterns, atr, sl_approach, sl_atr_mult)
+
         # Re-assign IDs after conflict removal
         for i, p in enumerate(all_patterns):
             p.id = i
@@ -1166,6 +1172,48 @@ class VerificationDataCollector:
 
         return trades, equity_curve, audit_issues
 
+    def _apply_stop_capping(
+        self,
+        patterns: List[DetailedPattern],
+        atr: np.ndarray,
+        sl_approach: str,
+        sl_atr_mult: float
+    ) -> None:
+        """
+        Apply stop loss capping based on ATR.
+
+        Modifies patterns in place to use tighter stops.
+        """
+        for pattern in patterns:
+            entry_bar = pattern.entry_bar
+            entry_price = pattern.entry_price if pattern.entry_price else 0
+            direction = pattern.direction
+            structural_stop = pattern.stop_loss
+
+            if entry_price == 0:
+                continue
+
+            # Get ATR at entry bar
+            atr_value = atr[entry_bar] if entry_bar < len(atr) else atr[-1]
+
+            # Calculate ATR-based stop
+            if direction == 'long':
+                atr_stop = entry_price - (atr_value * sl_atr_mult)
+            else:  # short
+                atr_stop = entry_price + (atr_value * sl_atr_mult)
+
+            # Apply based on approach
+            if sl_approach == 'atr':
+                new_stop = atr_stop
+            else:  # 'capped'
+                if direction == 'long':
+                    new_stop = max(structural_stop, atr_stop)
+                else:
+                    new_stop = min(structural_stop, atr_stop)
+
+            # Update pattern
+            pattern.stop_loss = new_stop
+
     def _remove_conflicting_patterns(
         self,
         patterns: List[DetailedPattern],
@@ -1986,6 +2034,7 @@ def _generate_html(data: Dict) -> str:
         function recalculateStats() {{
             const trades = getFilteredTrades();
             const initialBalance = {data['metrics']['initial_balance']};
+            const allModulesOn = moduleFilters.A && moduleFilters.B && moduleFilters.C;
 
             if (trades.length === 0) {{
                 document.getElementById('stat-trades').textContent = '0';
@@ -2003,42 +2052,46 @@ def _generate_html(data: Dict) -> str:
                 return;
             }}
 
-            // Calculate stats
+            // If all modules on, use stored metrics (accurate with compounding)
+            // If filtered, use sum of pnl_net (approximation without compounding)
+            let returnPct, maxDrawdown, sharpe, profitFactor;
+
             const wins = trades.filter(t => t.pnl_net > 0);
             const losses = trades.filter(t => t.pnl_net <= 0);
             const winRate = (wins.length / trades.length) * 100;
-
-            const totalPnl = trades.reduce((sum, t) => sum + t.pnl_net, 0);
-            const returnPct = (totalPnl / initialBalance) * 100;
-
             const grossProfit = wins.reduce((sum, t) => sum + t.pnl_net, 0);
             const grossLoss = Math.abs(losses.reduce((sum, t) => sum + t.pnl_net, 0));
-            const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit;
+            profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit;
 
-            // Calculate equity curve and max drawdown for filtered trades
-            let equity = initialBalance;
-            let peak = equity;
-            let maxDrawdown = 0;
-            let equityHistory = [equity];
+            if (allModulesOn) {{
+                // Use accurate stored metrics
+                returnPct = {data['metrics']['total_return_pct']};
+                maxDrawdown = {data['metrics']['max_drawdown_pct']};
+                sharpe = {data['metrics']['sharpe']};
+            }} else {{
+                // Approximation for filtered view (no compounding)
+                const totalPnl = trades.reduce((sum, t) => sum + t.pnl_net, 0);
+                returnPct = (totalPnl / initialBalance) * 100;
 
-            // Sort trades by entry bar to calculate equity curve correctly
-            const sortedTrades = [...trades].sort((a, b) => a.entry_bar - b.entry_bar);
-            sortedTrades.forEach(t => {{
-                equity += t.pnl_net;
-                equityHistory.push(equity);
-                if (equity > peak) peak = equity;
-                const dd = (peak - equity) / peak * 100;
-                if (dd > maxDrawdown) maxDrawdown = dd;
-            }});
+                // Simple max drawdown from pnl sequence
+                let equity = initialBalance;
+                let peak = equity;
+                maxDrawdown = 0;
+                const sortedTrades = [...trades].sort((a, b) => a.entry_bar - b.entry_bar);
+                sortedTrades.forEach(t => {{
+                    equity += t.pnl_net;
+                    if (equity > peak) peak = equity;
+                    const dd = (peak - equity) / peak * 100;
+                    if (dd > maxDrawdown) maxDrawdown = dd;
+                }});
 
-            // Simple Sharpe approximation
-            const returns = [];
-            for (let i = 1; i < equityHistory.length; i++) {{
-                returns.push((equityHistory[i] - equityHistory[i-1]) / equityHistory[i-1]);
+                // Simple Sharpe
+                const returns = sortedTrades.map(t => t.pnl_net / initialBalance);
+                const avgReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
+                const variance = returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length;
+                const stdDev = Math.sqrt(variance);
+                sharpe = stdDev > 0 ? (avgReturn / stdDev) * Math.sqrt(252) : 0;
             }}
-            const avgReturn = returns.length > 0 ? returns.reduce((a, b) => a + b, 0) / returns.length : 0;
-            const stdReturn = returns.length > 1 ? Math.sqrt(returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / (returns.length - 1)) : 0;
-            const sharpe = stdReturn > 0 ? (avgReturn / stdReturn) * Math.sqrt(252) : 0;
 
             // Update UI
             document.getElementById('stat-trades').textContent = trades.length;

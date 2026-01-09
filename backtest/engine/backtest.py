@@ -921,6 +921,14 @@ class BacktestEngine:
                 print(f"Removed {conflicts_removed} conflicting entries (LONG+SHORT on same bar)")
             print(f"Total: {len(all_setups)} potential setups")
 
+        # Apply stop loss capping if configured
+        sl_approach = getattr(self.config, 'sl_approach', 'structure')
+        if sl_approach in ('atr', 'capped'):
+            sl_atr_mult = getattr(self.config, 'sl_atr_multiplier', 2.0)
+            capped_count = self._apply_stop_capping(all_setups, atr, sl_approach, sl_atr_mult)
+            if show_progress and capped_count > 0:
+                print(f"Capped {capped_count} stops using ATR (approach: {sl_approach})")
+
         # Simulate trades
         trades = []
         equity = [self.config.initial_balance]
@@ -1111,6 +1119,64 @@ class BacktestEngine:
             signals_executed=len(trades),
             pivots_found=len(pivots)
         )
+
+    def _apply_stop_capping(
+        self,
+        setups: List[Dict],
+        atr: np.ndarray,
+        sl_approach: str,
+        sl_atr_mult: float
+    ) -> int:
+        """
+        Apply stop loss capping based on ATR.
+
+        Args:
+            setups: List of trade setups
+            atr: ATR values array
+            sl_approach: 'atr' (replace structural) or 'capped' (use tighter of both)
+            sl_atr_mult: ATR multiplier for stop distance
+
+        Returns:
+            Number of stops that were modified
+        """
+        capped_count = 0
+
+        for setup in setups:
+            entry_bar = setup['entry_bar']
+            entry_price = setup['entry_price']
+            direction = setup['direction']
+            structural_stop = setup['stop_loss']
+
+            # Get ATR at entry bar
+            atr_value = atr[entry_bar] if entry_bar < len(atr) else atr[-1]
+
+            # Calculate ATR-based stop
+            if direction == 'long':
+                atr_stop = entry_price - (atr_value * sl_atr_mult)
+            else:  # short
+                atr_stop = entry_price + (atr_value * sl_atr_mult)
+
+            # Apply based on approach
+            if sl_approach == 'atr':
+                # Pure ATR stop - replace structural entirely
+                new_stop = atr_stop
+            else:  # 'capped'
+                # Use the tighter stop (closer to entry)
+                if direction == 'long':
+                    # For long, higher stop = tighter
+                    new_stop = max(structural_stop, atr_stop)
+                else:
+                    # For short, lower stop = tighter
+                    new_stop = min(structural_stop, atr_stop)
+
+            # Check if stop was modified
+            if abs(new_stop - structural_stop) > 0.01:
+                setup['stop_loss'] = new_stop
+                setup['stop_capped'] = True  # Flag for debugging
+                setup['original_stop'] = structural_stop
+                capped_count += 1
+
+        return capped_count
 
     def _remove_conflicting_entries(self, setups: List[Dict]) -> List[Dict]:
         """
